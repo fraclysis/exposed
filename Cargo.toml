@@ -1,0 +1,12 @@
+[workspace]
+members = ["exposed*", "examples/*"]
+# add "*-bindings" 
+# Only check / build main crates by default (check all with `--workspace`)
+default-members = ["exposed*"]
+
+resolver = "2"
+
+[profile.dev_release]
+inherits = "release"
+debug = 2
+lto = "fat"
