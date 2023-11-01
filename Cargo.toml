@@ -10,3 +10,7 @@ resolver = "2"
 inherits = "release"
 debug = 2
 lto = "fat"
+
+
+[profile.dev.package.image]
+opt-level = 2

@@ -1,59 +1,52 @@
 use std::{
-    ffi::{c_int, c_ulong},
-    io::Error,
-    ptr::null_mut,
+    ffi::{c_int, c_long},
+    io::{Error, ErrorKind},
+    mem::zeroed,
+    ptr::{null, null_mut},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
-use exposed_macro::c_str;
-use libc::{c_long, printf};
+use exposed_macro::{cstr, log_warn};
+use libc::{c_ulong, setlocale, LC_ALL};
 use x11::xlib::{
-    self, Button4, Button5, Screen, XBufferOverflow, XCheckIfEvent, XEvent, XLookupBoth,
-    XLookupKeySym, XLookupString, XNextEvent, Xutf8LookupString, _XDisplay, _XIC, _XIM,
+    self, Display, Expose, Screen, True, XCheckIfEvent, XCheckTypedEvent, XCloseDisplay, XCloseIM, XConvertCase, XDefaultScreen,
+    XDefaultScreenOfDisplay, XEvent, XInternAtom, XKeysymToKeycode, XLookupBoth, XLookupChars, XLookupKeySym, XNextEvent,
+    XOpenDisplay, XOpenIM, XSetLocaleModifiers, XSupportsLocale, Xutf8LookupString, _XDisplay, _XIM,
 };
 
-use crate::window::{Event, Key, MouseButton};
+use crate::{
+    destroy::Destroy,
+    window::{platform::ThreadContext, Context, Event, Key, MouseButton},
+};
 
 use super::WindowHandle;
 
-#[repr(C)]
+#[derive(Debug)]
 pub struct EventHandler<E: Event> {
-    pub user_data: *mut E,
-    pub display: *mut _XDisplay,
-    pub screen_id: c_int,
-    pub im: *mut _XIM,
     pub screen: *mut Screen,
+    pub im: *mut _XIM,
+    pub display: *mut Display,
+    pub screen_id: c_int,
     pub wm_delete: c_ulong,
-    pub window_data: intmap::IntMap<*mut _XIC>,
-    pub key_event_buffer: [i8; 25],
+    pub user_data: *mut E,
     pub event: XEvent,
-    pub running: bool,
 }
 
 impl<E: Event> EventHandler<E> {
-    pub fn destroy(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    /// If no messages are available, the return value false.
-    #[inline]
     pub fn poll(&mut self) -> i32 {
-        extern "C" fn predicate(
-            _display: *mut _XDisplay,
-            _event: *mut XEvent,
-            _arg: *mut i8,
-        ) -> i32 {
-            1
+        unsafe {
+            extern "C" fn predicate(_display: *mut _XDisplay, _event: *mut XEvent, _arg: *mut i8) -> i32 {
+                1
+            }
+
+            XCheckIfEvent(self.display, &mut self.event, Some(predicate), null_mut())
         }
-
-        unsafe { XCheckIfEvent(self.display, &mut self.event, Some(predicate), null_mut()) }
     }
 
-    #[inline]
-    pub fn wait(&mut self) {
-        unsafe { XNextEvent(self.display, &mut self.event) };
+    pub fn wait(&mut self) -> i32 {
+        unsafe { XNextEvent(self.display, &mut self.event) }
     }
 
-    #[inline]
     pub fn dispatch(&mut self) {
         unsafe {
             let app = &mut *self.user_data;
@@ -61,248 +54,256 @@ impl<E: Event> EventHandler<E> {
 
             match event.type_ {
                 xlib::Expose => {
-                    println!("Resize {}", event.expose.count);
-                    if event.expose.count == 0 {
-                        app.low_render(WindowHandle {
-                            windowHandle: event.expose.window,
-                            display: self.display,
-                        })
-                    }
+                    if XCheckTypedEvent(self.display, Expose, event) != 0 {}
+
+                    app.low_render(WindowHandle(event.expose.window, self.display).into());
                 }
 
-                // xlib::ResizeRequest => {
-                //     XClearArea(self.display, event.expose.window, 0, 0, 0, 0, True);
-
-                //     app.resized(
-                //         WindowHandle {
-                //             windowHandle: event.resize_request.window,
-                //             display: self.display,
-                //         },
-                //         event.resize_request.width,
-                //         event.resize_request.height,
-                //     );
-                // }
                 xlib::ConfigureNotify => {
-                    app.resized(
-                        WindowHandle {
-                            windowHandle: event.configure.window,
-                            display: event.configure.display,
-                        },
-                        event.configure.width,
-                        event.configure.height,
-                    );
-
-                    app.moved(
-                        WindowHandle {
-                            windowHandle: event.configure.window,
-                            display: event.configure.display,
-                        },
-                        event.configure.x,
-                        event.configure.y,
-                    );
+                    let window = WindowHandle(event.expose.window, self.display).into();
+                    app.resized(window, event.configure.width, event.configure.height);
+                    app.moved(window, event.configure.x, event.configure.y);
                 }
 
-                xlib::FocusIn => app.focused(
-                    WindowHandle {
-                        windowHandle: event.focus_change.window,
-                        display: self.display,
-                    },
-                    true,
-                ),
+                xlib::FocusIn => {
+                    let window = WindowHandle(event.focus_change.window, self.display).into();
+                    app.focused(window, true);
+                }
 
-                xlib::FocusOut => app.focused(
-                    WindowHandle {
-                        windowHandle: event.focus_change.window,
-                        display: self.display,
-                    },
-                    false,
-                ),
+                xlib::FocusOut => {
+                    let window = WindowHandle(event.focus_change.window, self.display).into();
+                    app.focused(window, false);
+                }
 
                 xlib::KeyPress => {
-                    let key = 0;
-                    let character = '1';
-
-                    let ic = *self.window_data.get(event.key.window).unwrap_unchecked();
-
-                    let mut keysym = std::mem::zeroed();
-                    let mut status = std::mem::zeroed();
-
-                    // pub const XBufferOverflow: i32 = -1;
-                    // pub const XLookupNone: i32 = 1;
-                    // pub const XLookupChars: i32 = 2;
-                    // pub const XLookupKeySym: i32 = 3;
-                    // pub const XLookupBoth: i32 = 4;
-
-                    let key_event = &mut event.key;
-                    let count = Xutf8LookupString(
-                        ic,
-                        key_event,
-                        self.key_event_buffer.as_mut_ptr(),
-                        24,
-                        &mut keysym,
-                        &mut status,
-                    );
-
-                    if status == XBufferOverflow {
-                        eprintln!(
-                            "[{}:{}] Xutf8LookupString returned XBufferOverflow!",
-                            file!(),
-                            column!()
-                        );
-                    }
-
-                    if count > 0 {
-                        printf(c_str!(
-                            "buffer: %.*s\n",
-                            count,
-                            self.key_event_char_buffer.as_ptr(),
-                        ));
-                    }
-
-                    if status == XLookupKeySym || status == XLookupBoth {
-                        println!("[{}:{}] Status: {}", file!(), column!(), status);
-                    }
-
-                    match status {
-                        xlib::XLookupChars => {}
-                        xlib::XLookupKeySym => {}
-
-                        _ => (),
-                    }
-
-                    app.received_character(
-                        WindowHandle {
-                            windowHandle: event.key.window,
-                            display: self.display,
-                        },
-                        character,
-                    );
-                    app.key_down(
-                        WindowHandle {
-                            windowHandle: event.key.window,
-                            display: self.display,
-                        },
-                        Key(0),
-                        0,
-                    );
-                }
-
-                xlib::KeyRelease => {
-                    let mut str_buffer = [0u8; 25];
-                    let info = &mut self.event.key;
-                    let mut key_sym = std::mem::zeroed();
-                    let len = XLookupString(
-                        info,
-                        str_buffer.as_mut_ptr().cast(),
-                        25,
-                        &mut key_sym,
-                        null_mut(),
-                    );
-
-                    println!("{}, {}", len, std::str::from_utf8_unchecked(&str_buffer));
-
-                    // Xutf8LookupString(6, 5, 4, 3, 2, 1);
-
-                    app.key_up(
-                        WindowHandle {
-                            windowHandle: info.window,
-                            display: self.display,
-                        },
-                        Key(0),
-                        0,
-                    );
-                }
-
-                xlib::ButtonPress => {
-                    let info = &mut self.event.button;
-                    let app = &mut *self.user_data;
-                    let window_handle = WindowHandle {
-                        windowHandle: info.window,
-                        display: self.display,
+                    let ic = match ThreadContext::current_thread().window_map.get(&event.key.window) {
+                        Some(ic) => *ic,
+                        None => return,
                     };
 
-                    if info.button == Button4 {
-                        app.mouse_wheel(window_handle, 1.0, 0.0)
-                    } else if info.button == Button5 {
-                        app.mouse_wheel(window_handle, -1.0, 0.0)
-                    } else {
-                        app.mouse_button_down(window_handle, MouseButton(info.button))
+                    let mut keysym = 0;
+                    let mut status = 0;
+
+                    let mut key_event_buffer = [0u8; 25];
+
+                    let count =
+                        Xutf8LookupString(ic, &mut event.key, key_event_buffer.as_mut_ptr().cast(), 24, &mut keysym, &mut status);
+
+                    let window = WindowHandle(event.key.window, self.display).into();
+
+                    if status == XLookupBoth || status == XLookupKeySym {
+                        let mut lower = 0;
+                        let mut upper = 0;
+                        XConvertCase(keysym, &mut lower, &mut upper);
+
+                        app.key_down(window, Key(lower as u32), XKeysymToKeycode(self.display, keysym) as u32);
                     }
-                }
 
-                xlib::ButtonRelease => {
-                    let info = &mut self.event.button;
-
-                    if !(info.button == Button4 || info.button == Button5) {
-                        app.mouse_button_release(
-                            WindowHandle {
-                                windowHandle: info.window,
-                                display: self.display,
-                            },
-                            MouseButton(info.button),
-                        )
-                    }
-                }
-
-                xlib::MotionNotify => {
-                    let info = &mut self.event.motion;
-                    app.cursor_moved(
-                        WindowHandle {
-                            windowHandle: info.window,
-                            display: self.display,
-                        },
-                        info.x_root,
-                        info.y_root,
-                    )
-                }
-
-                xlib::EnterNotify => {
-                    let info = &mut self.event.crossing;
-                    app.cursor_entered(WindowHandle {
-                        windowHandle: info.window,
-                        display: self.display,
-                    })
-                }
-
-                xlib::LeaveNotify => {
-                    let info = &mut self.event.crossing;
-                    app.cursor_left(WindowHandle {
-                        windowHandle: info.window,
-                        display: self.display,
-                    })
-                }
-
-                xlib::MapNotify => {
-                    let info = &mut self.event.map;
-                }
-
-                xlib::UnmapNotify => {
-                    let info = &mut self.event.map;
-                }
-
-                xlib::VisibilityNotify => {
-                    let info = &mut self.event.visibility;
-
-                    let _ = xlib::VisibilityFullyObscured
-                        | xlib::VisibilityPartiallyObscured
-                        | xlib::VisibilityUnobscured;
-                }
-
-                xlib::ClientMessage => {
-                    if event.client_message.format == 32 {
-                        if *event.client_message.data.as_longs().get_unchecked(0)
-                            == self.wm_delete as c_long
-                        {
-                            app.close_requested(WindowHandle {
-                                windowHandle: event.client_message.window,
-                                display: self.display,
-                            })
+                    if status == XLookupBoth || status == XLookupChars {
+                        match std::str::from_utf8(&key_event_buffer[..count as usize]) {
+                            Ok(c) => {
+                                for c in c.chars() {
+                                    app.received_character(window, c);
+                                }
+                            }
+                            Err(e) => log_warn!("Exposed", "Failed to get char event {e}"),
                         }
                     }
                 }
 
-                _ => (),
+                xlib::KeyRelease => {
+                    let ic = match ThreadContext::current_thread().window_map.get(&event.key.window) {
+                        Some(ic) => *ic,
+                        None => return,
+                    };
+
+                    let mut keysym = 0;
+                    let mut status = 0;
+
+                    let mut key_event_buffer = [0u8; 25];
+
+                    let _count =
+                        Xutf8LookupString(ic, &mut event.key, key_event_buffer.as_mut_ptr().cast(), 24, &mut keysym, &mut status);
+
+                    let window = WindowHandle(event.key.window, self.display).into();
+
+                    if status == XLookupBoth || status == XLookupKeySym {
+                        let mut lower = 0;
+                        let mut upper = 0;
+                        XConvertCase(keysym, &mut lower, &mut upper);
+
+                        app.key_up(window, Key(lower as u32), XKeysymToKeycode(self.display, keysym) as u32);
+                    }
+                }
+
+                xlib::ButtonPress => {
+                    let window = WindowHandle(event.button.window, self.display).into();
+                    app.mouse_button_down(window, MouseButton(event.button.button));
+                }
+
+                xlib::ButtonRelease => {
+                    let window = WindowHandle(event.button.window, self.display).into();
+                    app.mouse_button_release(window, MouseButton(event.button.button));
+                }
+
+                xlib::MotionNotify => {
+                    let window = WindowHandle(event.motion.window, self.display).into();
+                    app.cursor_moved(window, event.motion.x_root, event.motion.y_root)
+                }
+
+                xlib::EnterNotify => {
+                    let window = WindowHandle(event.crossing.window, self.display).into();
+                    app.cursor_entered(window)
+                }
+
+                xlib::LeaveNotify => {
+                    let window = WindowHandle(event.crossing.window, self.display).into();
+                    app.cursor_left(window)
+                }
+
+                xlib::MapNotify => {
+                    // TODO
+                }
+
+                xlib::UnmapNotify => {
+                    // TODO
+                }
+
+                xlib::VisibilityNotify => {
+                    // TODO
+                }
+
+                xlib::ClientMessage => {
+                    if event.client_message.format == 32 {
+                        if *event.client_message.data.as_longs().get_unchecked(0) == self.wm_delete as c_long {
+                            let window = WindowHandle(event.focus_change.window, self.display).into();
+                            app.close_requested(window);
+                        }
+                    }
+                }
+
+                _ => {}
             }
         }
+    }
+}
+
+impl<E: Event> Into<crate::window::EventHandler<E>> for EventHandler<E> {
+    fn into(self) -> crate::window::EventHandler<E> {
+        crate::window::EventHandler(self)
+    }
+}
+
+impl<E: Event> Destroy for EventHandler<E> {
+    fn destroy(&mut self) -> Result<(), Error> {
+        unsafe {
+            XCloseIM(self.im);
+            XCloseDisplay(self.display);
+            Ok(())
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct EventHandlerBuilder {}
+
+impl EventHandlerBuilder {
+    pub unsafe fn build<E: Event>(&mut self, user_data: *mut E) -> Result<EventHandler<E>, Error> {
+        static mut ONCE: AtomicUsize = AtomicUsize::new(0);
+
+        if ONCE.fetch_add(1, Ordering::SeqCst) == 0 {
+            if setlocale(LC_ALL, cstr!("")).is_null() {
+                return Err(ErrorKind::Other.into());
+            }
+
+            if XSupportsLocale() == 0 {
+                return Err(ErrorKind::Other.into());
+            }
+
+            if XSetLocaleModifiers(cstr!("@im=none")).is_null() {
+                return Err(ErrorKind::Other.into());
+            }
+        }
+
+        let display = XOpenDisplay(null());
+        if display.is_null() {
+            return Err(ErrorKind::Other.into());
+        }
+
+        let screen = XDefaultScreenOfDisplay(display);
+        if screen.is_null() {
+            XCloseDisplay(display);
+            return Err(ErrorKind::Other.into());
+        }
+
+        let screen_id = XDefaultScreen(display);
+
+        let im = XOpenIM(display, null_mut(), null_mut(), null_mut());
+        if im.is_null() {
+            XCloseDisplay(display);
+            return Err(ErrorKind::Other.into());
+        }
+
+        // type XIMStyle = c_ulong;
+
+        // #[repr(C)]
+        // struct XIMStyles {
+        //     count_styles: c_ushort,
+        //     supported_styles: *mut XIMStyle,
+        // }
+
+        // let mut styles: *mut XIMStyles = null_mut();
+        // let styles_ptr = &mut styles as *mut *mut XIMStyles;
+
+        // let failed_args = XGetIMValues(im, XNQueryInputStyle_0.as_ptr(), styles_ptr, 0usize);
+        // if !failed_args.is_null() {
+        //     XCloseIM(im);
+        //     XCloseDisplay(display);
+        //     return Err(ErrorKind::Other.into());
+        // }
+
+        // let styles = styles.to_ref();
+
+        // for i in 0..styles.count_styles {
+        //     let string = *styles.supported_styles.add(i as usize);
+
+        //     let s0 = styles.supported_styles as *const *const u8;
+        //     let s0 = std::str::from_utf8_unchecked(std::slice::from_raw_parts(s0.cast(), 1000));
+        //     let s1 = styles.supported_styles as *const u8;
+        //     let s1 = std::str::from_utf8_unchecked(std::slice::from_raw_parts(s1.cast(), 1000));
+
+        //     let string = CStr::from_ptr(string as _);
+
+        //     match string.to_str() {
+        //         Ok(s) => {
+        //             log_verbose!("Exposed", "XIM style {s}");
+        //         }
+        //         Err(e) => {
+        //             log_error!("Exposed", "XIM style error <{e}>");
+        //         }
+        //     }
+        // }
+
+        let wm_delete = XInternAtom(display, cstr!("WM_DELETE_WINDOW"), True);
+
+        let thread_context = ThreadContext::current_thread();
+
+        thread_context.display = display;
+        thread_context.screen = screen;
+        thread_context.screen_id = screen_id;
+        thread_context.wm_delete = wm_delete;
+        thread_context.im = im;
+
+        if let Some(s) = E::create(Context(thread_context)) {
+            user_data.write(s);
+        } else {
+            XCloseIM(im);
+            XCloseDisplay(display);
+            return Err(ErrorKind::Other.into());
+        }
+
+        let event_handler = EventHandler { user_data, wm_delete, screen, screen_id, im, display, event: zeroed() };
+
+        Ok(event_handler)
     }
 }

@@ -1,28 +1,49 @@
-use std::{
-    io::{Error, ErrorKind::Other},
-    os::raw::c_ulong,
-    ptr::null,
-};
-
-use exposed::window::{Event, EventHandler, WindowBuilder, WindowHandle};
 use glutin_glx_sys as glx;
 use glx::{
     glx_extra::{
-        self,
         types::{Display, GLXFBConfig},
+        MAX_SWAP_INTERVAL_EXT, SWAP_INTERVAL_EXT,
     },
-    AllocNone, InputOutput, StructureNotifyMask, XIMStatusNothing, XNClientWindow_0, _XDisplay,
+    AllocNone, InputOutput, StructureNotifyMask, XIMStatusNothing, XNClientWindow_0,
 };
-use libc::{c_char, c_void};
-use x11::xlib::{
-    ButtonMotionMask, ButtonPressMask, ButtonReleaseMask, CWBackPixel, CWBorderPixel, CWColormap,
-    CWEventMask, EnterWindowMask, ExposureMask, False, FocusChangeMask, KeyPressMask,
-    KeyReleaseMask, LeaveWindowMask, PointerMotionMask, ResizeRedirectMask, True, XBlackPixel,
-    XCreateColormap, XCreateIC, XCreateWindow, XFree, XIMPreeditNothing, XNInputStyle_0,
-    XRootWindow, XSetICFocus, XSetWindowAttributes, XSync, XWhitePixel, _XIC,
+use std::{
+    alloc::{alloc, dealloc, Layout},
+    ffi::{c_char, c_ulong},
+    io::{
+        Error,
+        ErrorKind::{self, Other},
+    },
+    ptr::{null, null_mut},
 };
 
-use crate::{lib_not_loaded_err, GLX};
+use x11::xlib::{
+    ButtonMotionMask, ButtonPressMask, ButtonReleaseMask, CWBorderPixel, CWColormap, CWEventMask, EnterWindowMask, ExposureMask,
+    FocusChangeMask, KeyPressMask, KeyReleaseMask, LeaveWindowMask, PointerMotionMask, True, XBlackPixel, XCreateColormap,
+    XCreateIC, XCreateWindow, XFree, XIMPreeditNothing, XNInputStyle_0, XRootWindow, XSetICFocus, XSetWindowAttributes,
+    XWhitePixel,
+};
+
+use glutin_glx_sys::glx_extra::Glx;
+use libc::{c_void, dlclose, dlopen, dlsym, RTLD_LAZY, RTLD_LOCAL};
+
+use exposed::{
+    destroy::Destroy,
+    unsafe_utilities::broke_checker::AsReference,
+    window::{
+        platform::{WindowBuilder, WindowHandle},
+        Context, Event,
+    },
+};
+
+pub use glutin_glx_sys::glx_extra as pgl_extra;
+
+use crate::GlConfigPicker;
+
+macro_rules! error {
+    ($($arg:tt)*) => {
+        Err(Error::new(ErrorKind::Other, format!($($arg)*)))
+    };
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -30,23 +51,148 @@ pub struct GlContext {
     pub context: usize,
 }
 
-impl GlContext {
-    pub const NO_CONTEXT: Self = Self { context: 0 };
-
-    pub fn destroy(self) -> Result<(), Error> {
+impl Destroy for GlContext {
+    fn destroy(&mut self) -> Result<(), Error> {
         Ok(())
     }
 }
 
+impl GlContext {
+    pub const NO_CONTEXT: Self = Self { context: 0 };
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GlDisplay {
+pub struct GlSurface {
     pub display: *mut Display,
     pub window: c_ulong,
     pub config: GLXFBConfig,
 }
 
-impl GlDisplay {
+impl GlSurface {
+    pub fn build_with<E: Event, P: GlConfigPicker>(
+        window_builder: &WindowBuilder, context: Context, config: &[u32], picker: &mut P,
+    ) -> Result<(GlSurface, WindowHandle), Error> {
+        let c = unsafe { context.0.to_ref() };
+        let glx = get_glx()?;
+
+        let display = c.display.cast();
+
+        let mut major = 0;
+        let mut minor = 0;
+
+        if unsafe { glx.QueryVersion(display, &mut major, &mut minor) } == 0 {
+            return error!("glxQueryVersion returned an error");
+        }
+
+        let mut config_size = 0;
+        let fb_config = unsafe { glx.ChooseFBConfig(display, c.screen_id, config.as_ptr().cast(), &mut config_size) };
+
+        let mut picked_config = None;
+        for i in 0..config_size as usize {
+            if let Some(config) = picker.pick(GlPixelFormat { display, format: unsafe { *fb_config.add(i) } as usize }) {
+                picked_config = Some(config);
+            }
+        }
+        unsafe { XFree(fb_config.cast()) };
+
+        if let Some(config) = picked_config {
+            let visual = unsafe { glx.GetVisualFromFBConfig(display, config as _) };
+            if visual.is_null() {
+                todo!()
+            }
+
+            if c.screen_id != unsafe { visual.to_ref().screen } {
+                todo!()
+            }
+
+            let root_window = unsafe { XRootWindow(c.display, c.screen_id) };
+
+            let mut window_attrib = unsafe {
+                XSetWindowAttributes {
+                    border_pixel: XBlackPixel(c.display, c.screen_id),
+                    background_pixel: XWhitePixel(c.display, c.screen_id),
+                    override_redirect: True,
+                    colormap: XCreateColormap(c.display, root_window, visual.to_ref().visual.cast(), AllocNone),
+                    event_mask: KeyPressMask
+                        | KeyReleaseMask
+                        | FocusChangeMask
+                        | PointerMotionMask
+                        | ButtonMotionMask
+                        | ButtonPressMask
+                        | ButtonReleaseMask
+                        | EnterWindowMask
+                        | LeaveWindowMask
+                        | ExposureMask
+                        | StructureNotifyMask,
+                    ..std::mem::zeroed()
+                }
+            };
+
+            let window = unsafe {
+                XCreateWindow(
+                    c.display,
+                    root_window,
+                    window_builder.x,
+                    window_builder.y,
+                    window_builder.width as _,
+                    window_builder.height as _,
+                    0,
+                    visual.to_ref().depth,
+                    InputOutput as u32,
+                    visual.to_ref().visual.cast(),
+                    CWColormap | CWBorderPixel | CWEventMask,
+                    &mut window_attrib,
+                )
+            };
+
+            let ic = unsafe {
+                XCreateIC(
+                    c.im,
+                    XNInputStyle_0.as_ptr(),
+                    XIMPreeditNothing | XIMStatusNothing,
+                    XNClientWindow_0.as_ptr(),
+                    window,
+                    0usize,
+                )
+            };
+
+            c.window_map.insert(window, ic);
+
+            unsafe { XSetICFocus(ic) };
+
+            Ok((GlSurface { display, window, config: config as _ }, WindowHandle(window)))
+        } else {
+            todo!()
+        }
+    }
+
+    pub fn build<E: Event, P: GlConfigPicker>(
+        _window: WindowHandle, _config: &[u32], _picker: &mut P,
+    ) -> Result<GlSurface, Error> {
+        Err(ErrorKind::Unsupported.into())
+    }
+
+    pub fn set_swap_interval(self, interval: i32) -> Result<(), Error> {
+        let glx = get_glx()?;
+
+        let drawable = unsafe { glx.GetCurrentDrawable() };
+        let mut swap = 0;
+        let mut max_swap = 0;
+
+        if drawable != 0 {
+            unsafe {
+                glx.QueryDrawable(self.display, drawable, SWAP_INTERVAL_EXT as _, &mut swap);
+                glx.QueryDrawable(self.display, drawable, MAX_SWAP_INTERVAL_EXT as _, &mut max_swap);
+
+                dbg!(swap);
+                dbg!(max_swap);
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn make_current(self, context: GlContext) -> Result<(), Error> {
         if unsafe { GLX.is_null() } {
             return lib_not_loaded_err();
@@ -60,6 +206,20 @@ impl GlDisplay {
         Ok(())
     }
 
+    pub fn create_context(&self, config: &[u32], share_context: GlContext) -> Result<GlContext, Error> {
+        let glx = get_glx()?;
+
+        let context = unsafe {
+            glx.CreateContextAttribsARB(self.display, self.config, share_context.context as _, 1, config.as_ptr().cast())
+        };
+
+        if context.is_null() {
+            todo!()
+        }
+
+        Ok(GlContext { context: context as _ })
+    }
+
     pub fn swap_buffers(self) -> Result<(), Error> {
         if unsafe { GLX.is_null() } {
             return lib_not_loaded_err();
@@ -70,365 +230,142 @@ impl GlDisplay {
 
         Ok(())
     }
+}
 
-    pub fn destroy(self) -> Result<(), Error> {
+impl Destroy for GlSurface {
+    fn destroy(&mut self) -> Result<(), Error> {
         Ok(())
     }
 }
 
-pub struct GlContextBuilder {}
+pub static mut GLX: *mut Glx = null_mut();
+pub static mut LIB_OPENGL: *mut c_void = null_mut();
 
-impl Default for GlContextBuilder {
-    fn default() -> Self {
-        Self {}
-    }
-}
+const LAYOUT_GLX: Layout = Layout::new::<Glx>();
 
-impl GlContextBuilder {
-    pub fn build(&self, display: GlDisplay, share_context: GlContext) -> Result<GlContext, Error> {
-        if unsafe { GLX.is_null() } {
-            return lib_not_loaded_err();
-        }
-        let glx = unsafe { &*GLX };
+pub fn load_lib_opengl() -> Result<(), Error> {
+    let paths = ["libGL.so.1\0", "libGL.so\0"];
 
-        #[rustfmt::skip]
-        let context_attribs = [
-            glx_extra::CONTEXT_MAJOR_VERSION_ARB, 3,
-            glx_extra::CONTEXT_MINOR_VERSION_ARB, 0,
-            glx_extra::NONE,
-        ];
-
-        println!("DD");
-        let context = unsafe {
-            glx.CreateContextAttribsARB(
-                display.display,
-                display.config,
-                share_context.context as _,
-                True,
-                null(),
-            )
-        };
-        unsafe { XSync(display.display.cast(), False) };
-
-        println!("FF");
-
-        Ok(GlContext {
-            context: context as _,
-        })
-    }
-}
-
-pub struct GlDisplayBuilder {}
-
-impl Default for GlDisplayBuilder {
-    fn default() -> Self {
-        Self {}
-    }
-}
-
-impl GlDisplayBuilder {
-    pub fn build_with<E: Event>(
-        &self,
-        window_builder: WindowBuilder,
-        event_handler: &mut EventHandler<E>,
-    ) -> Result<(GlDisplay, WindowHandle), Error> {
-        let display = event_handler.display.cast();
-        let screen_id = event_handler.screen_id;
-
-        let mut glx_major = 0;
-        let mut glx_minor = 0;
-
-        unsafe {
-            if GLX.is_null() {
-                return lib_not_loaded_err();
-            }
-        }
-
-        let glx = unsafe { &*GLX };
-
-        if unsafe { glx.QueryVersion(display, &mut glx_major, &mut glx_minor) } == 0 {
-            return Err(Error::new(Other, "glXQueryVersion returned an error."));
-        }
-
-        #[rustfmt::skip]
-        let glx_attribs = [
-            glx_extra::X_RENDERABLE    , glx::True as u32,
-		    glx_extra::DRAWABLE_TYPE   , glx_extra::WINDOW_BIT,
-		    glx_extra::RENDER_TYPE     , glx_extra::RGBA_BIT,
-		    glx_extra::X_VISUAL_TYPE   , glx_extra::TRUE_COLOR,
-		    glx_extra::RED_SIZE        , 8,
-		    glx_extra::GREEN_SIZE      , 8,
-		    glx_extra::BLUE_SIZE       , 8,
-		    glx_extra::ALPHA_SIZE      , 8,
-		    glx_extra::DEPTH_SIZE      , 24,
-		    glx_extra::STENCIL_SIZE    , 8,
-		    glx_extra::DOUBLEBUFFER    , glx::True as u32,
-		    glx_extra::NONE
-        ];
-
-        let mut fbcount = 0;
-        let fbc: *mut GLXFBConfig = unsafe {
-            glx.ChooseFBConfig(
-                display.cast(),
-                screen_id,
-                glx_attribs.as_ptr().cast(),
-                &mut fbcount,
-            )
-        };
-
-        if fbc.is_null() {
-            return Err(Error::new(Other, "Failed to retrieve framebuffer."));
-        }
-
-        let fbc_slice: &[GLXFBConfig] =
-            unsafe { std::slice::from_raw_parts(fbc, fbcount as usize) };
-
-        // Pick the FB config/visual with the most samples per pixel
-        let mut best_fbc = -1;
-        let mut worst_fbc = -1;
-        let mut best_num_samp = -1;
-        let mut worst_num_samp = 999;
-
-        for (i, f) in fbc_slice.iter().enumerate() {
-            let f: GLXFBConfig = *f;
-            let vi = unsafe { glx.GetVisualFromFBConfig(display, f) };
-
-            if !vi.is_null() {
-                let mut samp_buf = 0;
-                let mut samples = 0;
-
-                unsafe {
-                    glx.GetFBConfigAttrib(
-                        display,
-                        f,
-                        glx::glx_extra::SAMPLE_BUFFERS as i32,
-                        &mut samp_buf,
-                    );
-                    glx.GetFBConfigAttrib(display, f, glx::glx_extra::SAMPLES as i32, &mut samples)
-                };
-
-                if (best_fbc < 0) || (samp_buf != 0 && samples > best_num_samp) {
-                    best_fbc = i as i32;
-                    best_num_samp = samples;
+    unsafe {
+        if LIB_OPENGL.is_null() {
+            for path in paths {
+                let path = path.as_ptr() as _;
+                LIB_OPENGL = dlopen(path, RTLD_LAZY | RTLD_LOCAL) as _;
+                if !LIB_OPENGL.is_null() {
+                    // TODO info log
+                    break;
                 }
-
-                if (worst_fbc < 0) || samp_buf == 0 || samples < worst_num_samp {
-                    worst_fbc = i as i32;
-                }
-                println!("S:{samples}, B:{samp_buf}");
-                worst_num_samp = samples;
             }
 
-            unsafe { XFree(vi.cast()) };
+            if LIB_OPENGL.is_null() {
+                todo!("Error")
+            }
+        } else {
+            // TODO Log warning
         }
 
-        let best_fbcc: GLXFBConfig = fbc_slice[best_fbc as usize];
+        if GLX.is_null() {
+            GLX = alloc(LAYOUT_GLX).cast();
 
-        {
-            let mut samp_buf = 0;
-            let mut samples = 0;
+            #[allow(non_snake_case)]
+            let PFNglXGetProcAddressARB = dlsym(LIB_OPENGL, "glXGetProcAddressARB\0".as_ptr().cast());
+            if PFNglXGetProcAddressARB.is_null() {
+                todo!()
+            }
 
-            unsafe {
-                glx.GetFBConfigAttrib(
-                    display,
-                    best_fbcc,
-                    glx::glx_extra::SAMPLE_BUFFERS as i32,
-                    &mut samp_buf,
-                );
-                glx.GetFBConfigAttrib(
-                    display,
-                    best_fbcc,
-                    glx::glx_extra::SAMPLES as i32,
-                    &mut samples,
-                )
-            };
+            GLX.write(Glx::load_with(|symbol| {
+                let mut c_symbol = symbol.to_string();
+                c_symbol.push('\0');
 
-            println!("Picked Config with {samples} samples and sample buffers {samp_buf}.");
-        }
+                let dl_symbol = dlsym(LIB_OPENGL, c_symbol.as_ptr().cast());
+                if !dl_symbol.is_null() {
+                    return dl_symbol;
+                }
 
-        drop(fbc_slice);
-        unsafe { XFree(fbc.cast()) };
+                #[allow(non_snake_case)]
+                let glXGetProcAddressARB: extern "C" fn(
+                    proc_name: *const glutin_glx_sys::glx::types::GLubyte,
+                ) -> *const c_void = std::mem::transmute(PFNglXGetProcAddressARB);
 
-        let visual = unsafe { glx.GetVisualFromFBConfig(display, best_fbcc) };
-        if visual.is_null() {
-            return Err(Error::new(Other, "Could not create correct visual info."));
-        }
-
-        if screen_id != unsafe { &*visual }.screen {
-            return Err(Error::new(
-                Other,
-                "Visual.screen and screen_id do not match.",
-            ));
-        }
-
-        let mut window_attribs: XSetWindowAttributes = unsafe { std::mem::zeroed() };
-        window_attribs.border_pixel = unsafe { XBlackPixel(display.cast(), screen_id) };
-        window_attribs.background_pixel = unsafe { XWhitePixel(display.cast(), screen_id) };
-        window_attribs.override_redirect = True;
-        window_attribs.colormap = unsafe {
-            XCreateColormap(
-                display.cast(),
-                XRootWindow(display.cast(), screen_id),
-                (&*visual).visual.cast(),
-                AllocNone,
-            )
-        };
-
-        window_attribs.event_mask = KeyPressMask
-            | KeyReleaseMask
-            | FocusChangeMask
-            // | ResizeRedirectMask
-            | PointerMotionMask
-            | ButtonMotionMask
-            | ButtonPressMask
-            | ButtonReleaseMask
-            | EnterWindowMask
-            | LeaveWindowMask
-            | ExposureMask
-            | StructureNotifyMask;
-
-        let window = unsafe {
-            XCreateWindow(
-                display.cast(),
-                XRootWindow(display.cast(), screen_id),
-                window_builder.x,
-                window_builder.y,
-                window_builder.width as u32,
-                window_builder.height as u32,
-                0,
-                (&*visual).depth,
-                InputOutput as u32,
-                (&*visual).visual.cast(),
-                /* CWBackPixel | */ CWColormap | CWBorderPixel | CWEventMask,
-                &mut window_attribs,
-            )
-        };
-
-        println!("WW");
-
-        unsafe {
-            let ic: *mut _XIC = XCreateIC(
-                event_handler.im,
-                XNInputStyle_0.as_ptr(),
-                XIMPreeditNothing | XIMStatusNothing,
-                XNClientWindow_0.as_ptr(),
-                window,
-                0usize,
-            );
-            XSetICFocus(ic);
-
-            event_handler.window_data.insert(window, ic);
-        }
-
-        Ok((
-            GlDisplay {
-                display,
-                window,
-                config: best_fbcc,
-            },
-            WindowHandle {
-                windowHandle: window,
-                display: event_handler.display,
-            },
-        ))
-    }
-
-    #[deprecated]
-    pub fn build<E: Event>(
-        &self,
-        window: WindowHandle,
-        event_handler: &mut EventHandler<E>,
-    ) -> Result<GlDisplay, Error> {
-        if unsafe { GLX }.is_null() {
-            return Err(Error::new(Other, "Load glx with load_lib_opengl."));
-        }
-
-        // let display = unsafe { x11::xlib::XOpenDisplay(null()) };
-        // let screen_id = unsafe { x11::xlib::XDefaultScreen(display) };
-
-        let display = event_handler.display;
-        let screen_id = event_handler.screen_id;
-
-        dbg!(display);
-        dbg!(screen_id);
-
-        let glx = unsafe { &*GLX };
-
-        let mut major = 0;
-        let mut minor = 0;
-
-        if unsafe { glx.QueryVersion(display.cast(), &mut major, &mut minor) } == glx::False {
-            return Err(Error::new(Other, "Failed to query GLX version."));
-        }
-
-        if (major <= 1) && (minor <= 2) {
-            return Err(Error::new(Other, "GLX 1.2 or greater is required."));
-        }
-
-        println!("Glx: {major}.{minor}");
-
-        #[rustfmt::skip]
-        let glx_attribs = [
-            glx_extra::X_RENDERABLE    , glx::True as u32,
-		    glx_extra::DRAWABLE_TYPE   , glx_extra::WINDOW_BIT,
-		    glx_extra::RENDER_TYPE     , glx_extra::RGBA_BIT,
-		    glx_extra::X_VISUAL_TYPE   , glx_extra::TRUE_COLOR,
-		    glx_extra::RED_SIZE        , 8,
-		    glx_extra::GREEN_SIZE      , 8,
-		    glx_extra::BLUE_SIZE       , 8,
-		    glx_extra::ALPHA_SIZE      , 8,
-		    glx_extra::DEPTH_SIZE      , 24,
-		    glx_extra::STENCIL_SIZE    , 8,
-		    glx_extra::DOUBLEBUFFER    , glx::True as u32,
-		    glx_extra::NONE
-        ];
-
-        let mut fbcount = 0;
-        let fbc: *mut GLXFBConfig = unsafe {
-            glx.ChooseFBConfig(
-                display.cast(),
-                screen_id,
-                glx_attribs.as_ptr().cast(),
-                &mut fbcount,
-            )
-        };
-
-        if fbc.is_null() {
-            return Err(Error::new(Other, "Failed to retrieve framebuffer."));
-        }
-
-        println!("Found {fbcount} matching framebuffers.");
-
-        // TODO XFree( fbc ); // Make sure to free this!
-
-        // !! This fails because of fbccast
-        let b_fbc = unsafe { *(fbc.add(0)) };
-        let visual = unsafe { glx.GetVisualFromFBConfig(display.cast(), b_fbc) }; // fbc is a array so for now we are using it as fbc[0] by casting
-
-        println!("VVSEEE");
-
-        if visual.is_null() {
-            return Err(Error::new(Other, "Could not create visual window."));
-        }
-
-        println!("CCVVSEEE");
-
-        if event_handler.screen_id != unsafe { &*visual }.screen {
+                glXGetProcAddressARB(c_symbol.as_ptr().cast())
+            }));
+        } else {
             // TODO
-            return Err(Error::new(Other, "No match."));
         }
 
-        println!("EEE");
-        todo!("Retval--------------")
+        Ok(())
     }
+}
+
+pub fn free_lib_opengl() -> Result<(), Error> {
+    unsafe {
+        if GLX.is_null() {
+        } else {
+            dealloc(GLX.cast(), LAYOUT_GLX);
+            GLX = null_mut();
+        }
+
+        if LIB_OPENGL.is_null() {
+            // TODO
+        } else {
+            // TODO Errors
+            dlclose(LIB_OPENGL);
+            LIB_OPENGL = null_mut();
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn glx_load_test() {
+    load_lib_opengl().unwrap();
+    unsafe {
+        assert!(!GLX.is_null());
+        let glx = &*GLX;
+        assert!(glx.CreateContextAttribsARB.is_loaded());
+        assert!(glx.ChooseVisual.is_loaded());
+        assert!(glx.CreateWindow.is_loaded());
+        assert!(glx.GetProcAddress.is_loaded());
+    }
+    free_lib_opengl().unwrap();
+}
+
+pub fn lib_not_loaded_err<T>() -> Result<T, Error> {
+    Err(Error::new(std::io::ErrorKind::Other, "glX is not loaded. Load glX with `exposed_gl::load_lib_opengl`."))
 }
 
 pub unsafe fn get_proc_addr(symbol: *const c_char) -> *const c_void {
     if GLX.is_null() {
-        // TODO warn and retrun null
         null()
     } else {
         let glx = &*GLX;
         glx.GetProcAddress(symbol.cast()).cast()
+    }
+}
+
+pub struct GlPixelFormat {
+    pub display: *mut Display,
+    pub format: usize,
+}
+
+impl GlPixelFormat {
+    pub fn get<const C: usize>(&self, attributes: &[u32; C], values: &mut [i32; C]) -> Result<(), Error> {
+        let glx = get_glx()?;
+
+        for (i, a) in attributes.iter().enumerate() {
+            unsafe { glx.GetFBConfigAttrib(self.display, self.format as _, *a as i32, values.get_unchecked_mut(i)) };
+        }
+
+        Ok(())
+    }
+}
+
+pub fn get_glx() -> Result<&'static mut Glx, Error> {
+    unsafe {
+        if !GLX.is_null() {
+            Ok(&mut *GLX)
+        } else {
+            Err(Error::new(ErrorKind::NotFound, "First initialize GLX with load_lib_opengl."))
+        }
     }
 }

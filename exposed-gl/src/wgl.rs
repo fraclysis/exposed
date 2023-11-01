@@ -2,7 +2,7 @@ use std::{
     alloc::{alloc, dealloc, handle_alloc_error, Layout},
     io::Error,
     mem::zeroed,
-    ptr::{null, null_mut},
+    ptr::{null, null_mut}, ffi::{c_char, c_void},
 };
 
 use glutin_wgl_sys::wgl_extra::Wgl;
@@ -13,19 +13,17 @@ use windows_sys::{
         Graphics::{
             Gdi::{GetDC, ReleaseDC},
             OpenGL::{
-                wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent,
-                ChoosePixelFormat, SetPixelFormat, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW,
-                PFD_MAIN_PLANE, PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR,
+                wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent, ChoosePixelFormat, SetPixelFormat,
+                PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE, PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR,
             },
         },
         System::LibraryLoader::{FreeLibrary, GetModuleHandleW, GetProcAddress, LoadLibraryW},
         UI::WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, UnregisterClassW,
-            CS_OWNDC, CW_USEDEFAULT, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+            CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, UnregisterClassW, CS_OWNDC, CW_USEDEFAULT, WNDCLASSW,
+            WS_OVERLAPPEDWINDOW,
         },
     },
 };
-
 const DUMMY_CLASS_NAME: *const u16 = w!("Dumb Dumb");
 const DUMMY_WINDOW_NAME: *const u16 = w!("Dumb Dumb win");
 pub static mut OPENGL_DLL_NAME: *const u16 = w!("opengl32.dll");
@@ -92,10 +90,7 @@ pub fn load_lib_opengl() -> Result<(), Error> {
         let dummy_dc = unsafe { GetDC(dummy_window) };
 
         if dummy_dc == 0 {
-            return Err(Error::new(
-                std::io::ErrorKind::Other,
-                format!("[{}:{}]Failed to get dummy DC", file!(), line!()),
-            ));
+            return Err(Error::new(std::io::ErrorKind::Other, format!("[{}:{}]Failed to get dummy DC", file!(), line!())));
         }
 
         let mut pfd: PIXELFORMATDESCRIPTOR = unsafe { zeroed() };
@@ -114,10 +109,7 @@ pub fn load_lib_opengl() -> Result<(), Error> {
         }
 
         if unsafe { SetPixelFormat(dummy_dc, pixel_format, &pfd) } == 0 {
-            return Err(Error::new(
-                std::io::ErrorKind::Other,
-                format!("[{}:{}] Failed to set pixel format.", file!(), line!()),
-            ));
+            return Err(Error::new(std::io::ErrorKind::Other, format!("[{}:{}] Failed to set pixel format.", file!(), line!())));
         }
 
         let dummy_context = unsafe { wglCreateContext(dummy_dc) };
@@ -207,3 +199,16 @@ pub fn free_lib_opengl() -> Result<(), Error> {
     }
     Ok(())
 }
+
+pub unsafe fn get_proc_addr(symbol: *const c_char) -> *const c_void {
+    debug_assert!(!WGL.is_null());
+    debug_assert!(LIB_OPENGL != 0);
+
+    if let Some(pfn) = GetProcAddress(LIB_OPENGL, symbol as *const u8) {
+        return pfn as _;
+    }
+
+    let wgl = &*WGL;
+    wgl.GetProcAddress(symbol).cast()
+}
+

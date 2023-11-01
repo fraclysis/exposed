@@ -7,5 +7,5 @@ fn main() {
 #[cfg(target_os = "linux")]
 fn lib_x11() {
     println!("cargo:rustc-link-lib=X11");
-    println!("cargo:rustc-link-lib=X11");
+    println!("cargo:rustc-link-search=/usr/X11/lib");
 }

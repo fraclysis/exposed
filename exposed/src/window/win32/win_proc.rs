@@ -2,23 +2,18 @@ use std::ptr::null_mut;
 
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, WPARAM},
-    UI::Shell::{DragFinish, DragQueryFileW, HDROP},
+    UI::{
+        Input::KeyboardAndMouse::{MapVirtualKeyW, MAPVK_VSC_TO_VK_EX, VK_CONTROL, VK_MENU, VK_SHIFT},
+        Shell::{DragFinish, DragQueryFileW, HDROP},
+    },
 };
 
-use crate::window::{
-    extern_ffi::{MessageLevel, MESSAGE_PROC},
-    Event, EventHandler, MouseButton, WindowHandle,
-};
+use crate::window::{win32::ThreadContext, Event, Key, MouseButton};
+
+use super::WindowHandle;
 
 #[inline(never)]
-pub unsafe extern "system" fn win_proc<E: Event>(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    use std::mem::transmute;
-
+pub unsafe extern "system" fn win_proc<E: Event>(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     use windows_sys::Win32::{
         Devices::HumanInterfaceDevice::MOUSE_MOVE_RELATIVE,
         UI::{
@@ -27,60 +22,18 @@ pub unsafe extern "system" fn win_proc<E: Event>(
         },
     };
 
-    if hwnd == 0 {
-        if let Some(pfn) = MESSAGE_PROC {
-            let message = format!("Hwnd 0 message! {}", msg);
-            pfn(
-                message.as_ptr().cast(),
-                message.len() as i32,
-                MessageLevel::Warn,
-            );
-        }
-        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    let handler = ThreadContext::user_data::<E>();
+    if handler.is_null() {
+        return E::missed_events(hwnd, msg, wparam, lparam);
     }
 
-    let handler_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut EventHandler<E>;
-    if handler_ptr.is_null() {
-        if let Some(pfn) = MESSAGE_PROC {
-            let message = format!("Missed event {msg}. Cause GWLP_USERDATA is not set yet.");
-            pfn(
-                message.as_ptr().cast(),
-                message.len() as i32,
-                MessageLevel::Warn,
-            );
-        }
-        return DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
-
-    let event_handler = &mut *handler_ptr;
-
-    if !event_handler.isUserDataValid {
-        if let Some(pfn) = MESSAGE_PROC {
-            let message = format!("Missed event {msg}. Cause isUserDataValid is false.");
-            pfn(
-                message.as_ptr().cast(),
-                message.len() as i32,
-                MessageLevel::Warn,
-            );
-        }
-        return DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
-
-    event_handler.last_hwnd = hwnd;
-    event_handler.last_msg = msg;
-    event_handler.last_wparam = wparam;
-    event_handler.last_lparam = lparam;
-
-    let handler = &mut *event_handler.userData;
+    let handler = &mut *handler;
 
     match msg {
-        WM_ERASEBKGND => {
-            // handler.low_render(WindowHandle{ windowHandle: hwnd});
-            1
-        }
+        WM_ERASEBKGND => 1,
 
         WM_PAINT => {
-            handler.low_render(WindowHandle { windowHandle: hwnd });
+            handler.low_render(WindowHandle(hwnd).into());
             0
         }
 
@@ -93,15 +46,7 @@ pub unsafe extern "system" fn win_proc<E: Event>(
             let mut data_size = std::mem::size_of::<RAWINPUT>() as u32;
             let header_size = std::mem::size_of::<RAWINPUTHEADER>() as u32;
 
-            let status = unsafe {
-                GetRawInputData(
-                    lparam,
-                    RID_INPUT,
-                    &mut data as *mut _ as _,
-                    &mut data_size,
-                    header_size,
-                )
-            };
+            let status = unsafe { GetRawInputData(lparam, RID_INPUT, &mut data as *mut _ as _, &mut data_size, header_size) };
 
             if status == u32::MAX || status == 0 {
                 return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -129,50 +74,66 @@ pub unsafe extern "system" fn win_proc<E: Event>(
         }
 
         WM_CLOSE => {
-            handler.close_requested(WindowHandle { windowHandle: hwnd });
+            handler.close_requested(WindowHandle(hwnd).into());
             0
         }
 
         WM_DESTROY => {
-            handler.destroyed(WindowHandle { windowHandle: hwnd });
+            handler.destroyed(WindowHandle(hwnd).into());
 
             0
         }
 
-        WM_KEYDOWN => {
-            handler.key_down(
-                WindowHandle { windowHandle: hwnd },
-                std::mem::transmute(wparam as u32),
-                0,
-            );
-            0
-        }
+        WM_KEYDOWN | WM_KEYUP => {
+            let mut vk_code = loword(wparam as u32);
+            let key_flag = hiword(lparam as u32);
+            let mut scan_code: u16 = lobyte(key_flag as u32) as u16;
 
-        WM_KEYUP => {
-            handler.key_up(
-                WindowHandle { windowHandle: hwnd },
-                std::mem::transmute(wparam as u32),
-                0,
-            );
-            0
+            let is_extended_key = (key_flag as u32 & KF_EXTENDED) == KF_EXTENDED;
+
+            if is_extended_key {
+                scan_code = make_word(scan_code as _, 0xE0);
+            }
+
+            // let was_key_down = (key_flag as u32 & KF_REPEAT) == KF_REPEAT;
+            // let repeat_count = loword(lparam as u32);
+            // let is_key_released = (key_flag as u32 & KF_UP) == KF_UP;
+
+            match vk_code {
+                VK_SHIFT | VK_CONTROL | VK_MENU => {
+                    vk_code = loword(MapVirtualKeyW(scan_code as u32, MAPVK_VSC_TO_VK_EX) as u32);
+                }
+                _ => (),
+            }
+
+            match msg {
+                WM_KEYDOWN => {
+                    handler.key_down(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    0
+                }
+                WM_KEYUP => {
+                    handler.key_up(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    0
+                }
+                WM_SYSKEYDOWN => {
+                    handler.key_down(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
+                }
+                WM_SYSKEYUP => {
+                    handler.key_up(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
+                }
+                _ => std::hint::unreachable_unchecked(),
+            }
         }
 
         WM_MOUSEMOVE => {
             let x = get_x_lparam(lparam as u32) as i32;
             let y = get_y_lparam(lparam as u32) as i32;
 
-            handler.cursor_moved(WindowHandle { windowHandle: hwnd }, x, y);
+            handler.cursor_moved(WindowHandle(hwnd).into(), x, y);
 
             0
-        }
-
-        WM_NCMOUSEMOVE => {
-            let x = get_x_lparam(lparam as u32) as i32;
-            let y = get_y_lparam(lparam as u32) as i32;
-
-            handler.cursor_moved(WindowHandle { windowHandle: hwnd }, x, y);
-
-            DefWindowProcW(hwnd, msg, wparam, lparam)
         }
 
         WM_MOUSEWHEEL => {
@@ -180,7 +141,7 @@ pub unsafe extern "system" fn win_proc<E: Event>(
             let value = value as i32;
             let value = value as f32 / WHEEL_DELTA as f32;
 
-            handler.mouse_wheel(WindowHandle { windowHandle: hwnd }, 0.0, value);
+            handler.mouse_wheel(WindowHandle(hwnd).into(), 0.0, value);
 
             0
         }
@@ -190,18 +151,18 @@ pub unsafe extern "system" fn win_proc<E: Event>(
             let value = value as i32;
             let value = -value as f32 / WHEEL_DELTA as f32; // NOTE: inverted! See https://github.com/rust-windowing/winit/pull/2105/
 
-            handler.mouse_wheel(WindowHandle { windowHandle: hwnd }, value, 0.0);
+            handler.mouse_wheel(WindowHandle(hwnd).into(), value, 0.0);
 
             0
         }
 
         WM_SETFOCUS => {
-            handler.focused(WindowHandle { windowHandle: hwnd }, true);
+            handler.focused(WindowHandle(hwnd).into(), true);
             0
         }
 
         WM_KILLFOCUS => {
-            handler.focused(WindowHandle { windowHandle: hwnd }, false);
+            handler.focused(WindowHandle(hwnd).into(), false);
             0
         }
 
@@ -209,91 +170,88 @@ pub unsafe extern "system" fn win_proc<E: Event>(
             let w = loword(lparam as u32) as i32;
             let h = hiword(lparam as u32) as i32;
 
-            handler.resized(WindowHandle { windowHandle: hwnd }, w, h);
+            handler.resized(WindowHandle(hwnd).into(), w, h);
             0
         }
 
-        WM_SETCURSOR => {
-            // if USE_DEFAULT_CURSOR {
-            // DefWindowProcW(hwnd, msg, wparam, lparam)
-            // } else {
-            // SetCursor(LoadCursorW(0, IDC_ARROW))
-            DefWindowProcW(hwnd, msg, wparam, lparam)
-            // }
-        }
+        WM_SETCURSOR => DefWindowProcW(hwnd, msg, wparam, lparam),
 
         WM_LBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle { windowHandle: hwnd }, MouseButton(1));
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(1));
             0
         }
 
         WM_LBUTTONUP => {
-            handler.mouse_button_release(WindowHandle { windowHandle: hwnd }, MouseButton(1));
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(1));
             0
         }
 
         WM_RBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle { windowHandle: hwnd }, MouseButton(2));
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(2));
             0
         }
 
         WM_RBUTTONUP => {
-            handler.mouse_button_release(WindowHandle { windowHandle: hwnd }, MouseButton(2));
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(2));
             0
         }
 
         WM_MBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle { windowHandle: hwnd }, MouseButton(3));
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(3));
             0
         }
 
         WM_MBUTTONUP => {
-            handler.mouse_button_release(WindowHandle { windowHandle: hwnd }, MouseButton(3));
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(3));
             0
         }
 
         WM_XBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle { windowHandle: hwnd }, MouseButton(4));
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(4));
             0
         }
 
         WM_XBUTTONUP => {
-            handler.mouse_button_release(WindowHandle { windowHandle: hwnd }, MouseButton(5));
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(5));
             0
         }
 
         WM_CHAR | WM_SYSCHAR => {
-            #[cfg(target_pointer_width = "64")]
-            const POINTER_U16_CAP: usize = 4;
-            #[cfg(target_pointer_width = "32")]
-            const POINTER_U16_CAP: usize = 2;
-            let chars: [u16; POINTER_U16_CAP] = transmute(wparam);
+            let char: u16 = wparam as u16;
 
-            let chars = std::char::decode_utf16(chars);
-
-            let is_high_surrogate = (0xD800..=0xDBFF).contains(&wparam);
-            let is_low_surrogate = (0xDC00..=0xDFFF).contains(&wparam);
-
-            // TODO research if `char::from_u32_unchecked` causes problem
-
-            if is_high_surrogate {
-            } else if is_low_surrogate {
-            } else {
-                handler.received_character(
-                    WindowHandle { windowHandle: hwnd },
-                    std::char::from_u32_unchecked(wparam as u32),
-                )
+            #[inline]
+            fn is_high_surrogate(char: u16) -> bool {
+                (0xD800..=0xDBFF).contains(&char)
             }
 
-            for c in chars {
-                match c {
-                    Ok(char) => {
-                        if char != '\0' {
-                            handler.received_character(WindowHandle { windowHandle: hwnd }, char);
-                        }
+            #[inline]
+            fn is_low_surrogate(char: u16) -> bool {
+                (0xDC00..=0xDFFF).contains(&char)
+            }
+
+            #[inline]
+            fn send_char_event<E: Event, I>(handler: &mut E, hwnd: HWND, iter: I)
+            where
+                I: IntoIterator<Item = u16>,
+            {
+                for c in std::char::decode_utf16(iter) {
+                    if let Ok(c) = c {
+                        handler.received_character(WindowHandle(hwnd).into(), c);
+                    } else {
+                        eprintln!("Decode error");
                     }
-                    Err(e) => eprintln!("CharErr: {e}"),
                 }
+            }
+
+            if is_high_surrogate(char) {
+                ThreadContext::get_ref().last_char = wparam as u16;
+            } else if is_low_surrogate(char) {
+                let context = ThreadContext::get_ref();
+                let chars = [context.last_char, char];
+                send_char_event(handler, hwnd, chars);
+                context.last_char = 0;
+            } else {
+                send_char_event(handler, hwnd, [char]);
             }
 
             if msg == WM_SYSCHAR {
@@ -303,29 +261,13 @@ pub unsafe extern "system" fn win_proc<E: Event>(
             }
         }
 
-        // WM_WINDOWPOSCHANGING => {
-        //     // TODO: Fix
-        //     let windowpos = lparam as *const WINDOWPOS;
-
-        //     if (*windowpos).flags & SWP_NOMOVE != SWP_NOMOVE {
-        //         handler.moved(hwnd, (*windowpos).x, (*windowpos).y);
-        //     }
-
-        //     0
-        // }
         WM_WINDOWPOSCHANGED => {
-            // TODO: Fix
             let windowpos = lparam as *const WINDOWPOS;
 
             if (*windowpos).flags & SWP_NOMOVE != SWP_NOMOVE {
-                handler.moved(
-                    WindowHandle { windowHandle: hwnd },
-                    (*windowpos).x,
-                    (*windowpos).y,
-                );
+                handler.moved(WindowHandle(hwnd).into(), (*windowpos).x, (*windowpos).y);
             }
 
-            // This is necessary for us to still get sent WM_SIZE.
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }
 
@@ -337,7 +279,7 @@ pub unsafe extern "system" fn win_proc<E: Event>(
             for i in 0..count {
                 const MAX_BUFFER_SIZE: usize = 255;
 
-                let file_name_size = DragQueryFileW(hdrop, i, null_mut(), 0) + 1; // add space for null terminator so it dont replaces last character with null
+                let file_name_size = DragQueryFileW(hdrop, i, null_mut(), 0) + 1;
 
                 if file_name_size > MAX_BUFFER_SIZE as u32 {
                 } else {
@@ -347,11 +289,9 @@ pub unsafe extern "system" fn win_proc<E: Event>(
                         todo!("Error handling")
                     }
 
-                    // remove null terminator
-                    let file_name =
-                        String::from_utf16_lossy(&buffer[..file_name_size as usize - 1]);
+                    let file_name = String::from_utf16_lossy(&buffer[..file_name_size as usize - 1]);
 
-                    handler.file_recived(WindowHandle { windowHandle: hwnd }, file_name)
+                    handler.file_recived(WindowHandle(hwnd).into(), file_name)
                 }
             }
 
@@ -381,4 +321,17 @@ const fn loword(x: u32) -> u16 {
 #[inline(always)]
 const fn hiword(x: u32) -> u16 {
     ((x >> 16) & 0xFFFF) as u16
+}
+
+#[inline(always)]
+const fn lobyte(x: u32) -> u8 {
+    (x & 0xff) as u8
+}
+
+#[inline(always)]
+const fn make_word(a: u8, b: u8) -> u16 {
+    let a: u16 = (a & 0xff) as u16;
+    let b: u16 = ((b & 0xff) as u16) << 8;
+
+    a | b
 }

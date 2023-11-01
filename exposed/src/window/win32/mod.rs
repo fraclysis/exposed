@@ -1,11 +1,13 @@
+mod context;
 mod event_handler;
-mod event_handler_builder;
 mod win_proc;
 mod window;
-mod window_builder;
 
+pub use context::*;
 pub use event_handler::*;
-pub use event_handler_builder::*;
 pub use win_proc::*;
 pub use window::*;
-pub use window_builder::*;
+
+pub struct Android<T> {
+    _mark: std::marker::PhantomData<T>,
+}

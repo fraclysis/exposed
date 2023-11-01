@@ -1,26 +1,34 @@
-use crate::window::EventHandler;
+use super::{Context, Key, MouseButton, ScanCode, Touch, WindowHandle};
 
-use super::{Key, MouseButton, ScanCode, WindowHandle};
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TouchPhase {
+    Started,
+    Moved,
+    Ended,
+    #[default]
+    Cancelled,
+}
 
 #[allow(unused)]
 pub trait Event: Sized + 'static {
-    unsafe fn low_create(this: *mut Self, event_handler: &'static mut EventHandler<Self>) -> bool {
-        if let Some(success) = Self::create(event_handler) {
-            this.write(success);
-            true
-        } else {
-            false
-        }
+    fn create(context: Context) -> Option<Self> {
+        None
     }
 
-    fn create(event_handler: &'static mut EventHandler<Self>) -> Option<Self>;
+    fn on_create(context: Context) {}
 
-    fn destroy(&mut self);
+    fn on_start(&mut self, context: Context) {}
+
+    fn on_resume(&mut self, context: Context) {}
+
+    fn on_pause(&mut self, context: Context) {}
+
+    fn on_stop(&mut self, context: Context) {}
 
     // ─── WINDOW RECT ────────────────────────────────────────────────────────────────
     // ────────────────────────────────────────────────────────────────────────────────
 
-    fn render(&mut self) {}
+    fn render(&mut self, window: WindowHandle) {}
 
     #[inline]
     #[cfg(target_os = "windows")]
@@ -30,11 +38,11 @@ pub trait Event: Sized + 'static {
 
         unsafe {
             let mut paint = std::mem::zeroed();
-            BeginPaint(window.windowHandle, &mut paint);
+            BeginPaint(window.0 .0, &mut paint);
 
-            self.render();
+            self.render(window);
 
-            EndPaint(window.windowHandle, &paint);
+            EndPaint(window.0.0, &paint);
         }
     }
 
@@ -42,7 +50,7 @@ pub trait Event: Sized + 'static {
     #[cfg(not(target_os = "windows"))]
     /// Use full for validating window in windows
     fn low_render(&mut self, window: WindowHandle) {
-        self.render();
+        self.render(window);
     }
 
     fn resized(&mut self, window: WindowHandle, width: i32, height: i32) {}
@@ -50,6 +58,8 @@ pub trait Event: Sized + 'static {
     fn focused(&mut self, window: WindowHandle, focused: bool) {}
 
     fn minimized(&mut self, window: WindowHandle) {}
+
+    fn show(&mut self, window: WindowHandle) {}
 
     fn maximized(&mut self, window: WindowHandle) {}
 
@@ -90,9 +100,34 @@ pub trait Event: Sized + 'static {
     // ─── MOBILE LIKE ────────────────────────────────────────────────────────────────
     // ────────────────────────────────────────────────────────────────────────────────
 
-    fn touch(&mut self, window: WindowHandle, touch: ()) {}
+    fn touch(&mut self, window: WindowHandle, touch: Touch, pointer_count: usize) {}
+
+    fn touch_end(&mut self, window: WindowHandle) {}
 
     fn axis_motion() {}
 
     fn scale_factor_changed() {}
+
+    // ─── HELPER ─────────────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────────────────────────
+
+    #[inline]
+    #[cfg(target_os = "windows")]
+    fn missed_events(
+        hwnd: windows_sys::Win32::Foundation::HWND, msg: u32, wparam: windows_sys::Win32::Foundation::WPARAM,
+        lparam: windows_sys::Win32::Foundation::LPARAM,
+    ) -> windows_sys::Win32::Foundation::LRESULT {
+        use windows_sys::Win32::UI::WindowsAndMessaging::DefWindowProcW;
+
+        #[cfg(debug_assertions)]
+        println!("Missed event hWnd: {hwnd} Msg: {msg} wParam: {wparam} lParam {lparam}");
+
+        return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+    }
+
+    #[inline]
+    #[cfg(target_os = "windows")]
+    fn utf16_to_char_error(&mut self, e: std::char::DecodeUtf16Error) {
+        eprintln!("{e}")
+    }
 }
