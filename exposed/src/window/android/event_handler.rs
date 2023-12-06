@@ -8,14 +8,11 @@ pub struct EventHandler<E: Event> {
 }
 
 impl<E: Event> EventHandler<E> {
-    /// If no messages are available, the return value false.
     #[inline]
     pub fn poll(&mut self) -> i32 {
         todo!()
     }
 
-    /// # Returns
-    /// If it receives WM_QUIT or an error occurs returns false otherwise returns true
     #[inline]
     pub fn wait(&mut self) -> i32 {
         todo!()

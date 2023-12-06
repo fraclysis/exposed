@@ -238,8 +238,6 @@ impl Pmx {
                     index_size: num_vertices,
                 });
 
-                dbg!(start..num_vertices + start);
-
                 start += num_vertices;
             }
         }
@@ -253,9 +251,6 @@ impl Pmx {
             }
             list
         };
-
-        dbg!(index_list.len());
-        dbg!(vertex_list.len());
 
         let mut index_data = 0;
         unsafe { gl::GenBuffers(1, &mut index_data) };

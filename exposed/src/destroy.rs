@@ -2,13 +2,17 @@ use std::ops::{Deref, DerefMut};
 
 use exposed_macro::log_error;
 
+/// Used for cleanup function that might return an error.
+/// To achieve best out of it use implementing type with trait `Destroyable`.
 pub trait Destroy {
     fn destroy(&mut self) -> Result<(), std::io::Error>;
 }
 
+/// Calls `Destroy::destroy` for `T` when it is dropped.
 pub struct Destroyable<T: Destroy>(pub T);
 
 impl<T: Destroy> Destroyable<T> {
+    /// Returns inner object while consuming itself.
     pub unsafe fn into_inner(self) -> T {
         let inner: T = std::mem::transmute_copy(&self.0);
         std::mem::forget(self);

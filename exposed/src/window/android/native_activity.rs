@@ -1,7 +1,7 @@
 use exposed_macro::log_fatal;
 use libc::{c_void, size_t};
 use ndk_sys::{AInputQueue, ANativeActivity, ANativeWindow, ARect};
-use unsafe_utilities::broke_checker::AsReference;
+use unsafe_utilities::to_ref::ToReference;
 
 #[allow(unused_variables)]
 pub trait AndroidCallback {

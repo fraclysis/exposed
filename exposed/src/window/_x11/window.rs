@@ -3,7 +3,8 @@ use std::{
     mem::zeroed,
 };
 
-use unsafe_utilities::broke_checker::AsReference;
+use unsafe_utilities::to_ref::ToReference;
+
 use x11::xlib::{
     self, ButtonMotionMask, ButtonPressMask, ButtonReleaseMask, EnterWindowMask, Expose, ExposureMask, FocusChangeMask,
     KeyPressMask, KeyReleaseMask, LeaveWindowMask, PointerMotionMask, ResizeRedirectMask, XBlackPixel, XClearWindow, XCreateIC,

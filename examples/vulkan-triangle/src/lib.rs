@@ -76,7 +76,7 @@ impl Event for App {
         &mut self, window: WindowHandle, key: exposed::window::Key,
         scancode: exposed::window::ScanCode,
     ) {
-        if key == exposed::window::Key::KEY_T {
+        if key == exposed::window::Key::T {
             let window = Destroyable(WindowBuilder::default().build::<Self>(self.context).unwrap());
             log_error!("Example", "New window created.");
 

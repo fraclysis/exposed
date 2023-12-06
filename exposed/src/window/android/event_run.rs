@@ -5,7 +5,7 @@ use libc::{sem_wait, size_t};
 use ndk_sys::{
     AInputQueue, ANativeActivity, ANativeWindow, ARect,
 };
-use unsafe_utilities::broke_checker::AsReference;
+use unsafe_utilities::to_ref::ToReference;
 
 use crate::{
     destroy::Destroy,

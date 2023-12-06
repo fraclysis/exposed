@@ -2,7 +2,6 @@ use std::{
     alloc::{alloc, dealloc, Layout},
     ffi::c_void,
     io::{Error, ErrorKind},
-    mem::zeroed,
     ptr::{null, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
 };
@@ -172,77 +171,6 @@ pub unsafe fn get_proc_addr(symbol: *const c_char) -> *const c_void {
     let egl = &mut *EGL;
 
     egl.GetProcAddress(symbol as *const c_char) as _
-}
-
-#[repr(C)]
-#[derive(Debug, Default)]
-pub struct GlSurfaceBuilder {
-    alpha_size: u32,
-    blue_size: u32,
-    red_size: u32,
-    green_size: u32,
-    depth_size: u32,
-    samples: u32,
-    stencil_size: u32,
-}
-
-impl GlSurfaceBuilder {
-    pub fn new() -> Self {
-        Self { red_size: 8, blue_size: 8, green_size: 8, alpha_size: 8, ..Default::default() }
-    }
-    pub fn build<E: Event>(&self, window: WindowHandle) -> Result<GlSurface, Error> {
-        unsafe {
-            let egl = get_egl()?;
-            let display = get_display()?;
-
-            #[rustfmt::skip]
-            let attrib = [
-                egl::SURFACE_TYPE, egl::WINDOW_BIT,
-                egl::BLUE_SIZE, self.blue_size,
-                egl::GREEN_SIZE, self.green_size,
-                egl::RED_SIZE, self.red_size,
-                egl::ALPHA_SIZE, self.alpha_size,
-                // egl::SAMPLES, self.samples,
-                // egl::DEPTH_SIZE, self.depth_size,
-                // egl::STENCIL_SIZE, self.stencil_size,
-                egl::NONE
-            ];
-
-            let mut config = zeroed();
-            let mut num_configs = 0;
-
-            if egl.ChooseConfig(display, attrib.as_ptr().cast(), &mut config, 1, &mut num_configs) == 0 {
-                return egl_error!(egl, "Failed to choose a suitable config. (EGL error: {})");
-            }
-
-            let mut format = 0;
-            if egl.GetConfigAttrib(display, config, egl::NATIVE_VISUAL_ID as _, &mut format) == 0 {
-                return egl_error!(egl, "Failed to get config attrib. (EGL error: {})");
-            }
-
-            ANativeWindow_setBuffersGeometry(window.native_handle(), 0, 0, format);
-
-            let surface = egl.CreateWindowSurface(display, config, window.native_handle() as _, 0 as _);
-
-            if surface.is_null() {
-                return egl_error!(egl, "Failed to create surface. (EGL error: {})");
-            }
-
-            Ok(GlSurface { surface, config })
-        }
-    }
-
-    pub fn build_with<E: Event>(
-        &self, context: Context, window_builder: &WindowBuilder,
-    ) -> Result<(GlSurface, WindowHandle), Error> {
-        unsafe {
-            let window = Destroyable(window_builder.build::<E>(context)?);
-
-            let surface = self.build::<E>(window.0)?;
-
-            Ok((surface, window.into_inner()))
-        }
-    }
 }
 
 #[repr(C)]

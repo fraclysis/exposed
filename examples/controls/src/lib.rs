@@ -38,6 +38,14 @@ impl exposed::window::Event for App {
     fn received_character(&mut self, _window: exposed::window::WindowHandle, character: char) {
         log_info!("Exposed Example", "Char:     {character:?}");
     }
+
+    fn mouse_button_down(&mut self, _: exposed::window::WindowHandle, button: exposed::window::MouseButton) {
+        log_info!("Exposed Example", "Pressed:  {button:?}");
+    }
+
+    fn mouse_button_release(&mut self, _: exposed::window::WindowHandle, button: exposed::window::MouseButton) {
+        log_info!("Exposed Example", "Released: {button:?}");
+    }
 }
 
 impl exposed::window::utility::ExtendedEvent for App {

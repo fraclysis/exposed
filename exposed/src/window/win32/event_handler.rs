@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    io::Error,
+    io::{Error, ErrorKind},
     mem::size_of,
     ptr::{null, null_mut},
 };
@@ -57,15 +57,10 @@ impl<E: Event> Destroy for EventHandler<E> {
 }
 
 impl<E: Event> EventHandler<E> {
-    /// If no messages are available, the return value false.
-    #[inline]
     pub fn poll(&mut self) -> i32 {
         unsafe { PeekMessageW(&mut self.msg, 0, 0, 0, PM_REMOVE) }
     }
 
-    /// # Returns
-    /// If it receives WM_QUIT or an error occurs returns false otherwise returns true
-    #[inline]
     pub fn wait(&mut self) -> i32 {
         unsafe { GetMessageW(&mut self.msg, 0, 0, 0) }
     }
@@ -101,6 +96,10 @@ impl EventHandlerBuilder {
             unsafe { HINSTANCE = GetModuleHandleW(null()) };
         }
 
+        if !ThreadContext::get().window_class.is_null() {
+            return Err(Error::new(ErrorKind::Other, "Single EventHandler is allowed per thread."));
+        }
+
         let thread_id = GetCurrentThreadId();
 
         let window_class: Vec<u16> = format!("ExposedClass{thread_id}\0").encode_utf16().collect();
@@ -132,7 +131,7 @@ impl EventHandlerBuilder {
         if let Some(event) = E::create(Context(ThreadContext::get_ref())) {
             std::ptr::write(user_data, event);
         } else {
-            return Err(Error::new(std::io::ErrorKind::Other, "Failed to create event."));
+            return Err(Error::new(ErrorKind::Other, "Failed to create event."));
         }
 
         context.user_data = user_data as _;

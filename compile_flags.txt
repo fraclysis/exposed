@@ -1,2 +1,0 @@
--ID:/Apps/Android/Sdk/ndk/25.2.9519653/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include
--ID:/Apps/Android/Sdk/ndk/25.2.9519653/sources/third_party/vulkan/src/include

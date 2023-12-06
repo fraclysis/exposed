@@ -20,13 +20,11 @@ impl GlConfigPicker for GlDefaultPicker {
 
         if values[2] > self.values[2] {
             self.values = values;
-            println!("Smp {values:?}");
             return Some(pixel_format.format);
         }
 
         if values[0] > self.values[0] {
             self.values = values;
-            println!("Col {values:?}");
             return Some(pixel_format.format);
         }
 

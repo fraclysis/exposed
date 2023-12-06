@@ -96,7 +96,7 @@ impl<E: Event> EventHandler<E> {
                         let mut upper = 0;
                         XConvertCase(keysym, &mut lower, &mut upper);
 
-                        app.key_down(window, Key(lower as u32), XKeysymToKeycode(self.display, keysym) as u32);
+                        app.key_down(window, Key(lower as _), XKeysymToKeycode(self.display, keysym) as _);
                     }
 
                     if status == XLookupBoth || status == XLookupChars {
@@ -132,7 +132,7 @@ impl<E: Event> EventHandler<E> {
                         let mut upper = 0;
                         XConvertCase(keysym, &mut lower, &mut upper);
 
-                        app.key_up(window, Key(lower as u32), XKeysymToKeycode(self.display, keysym) as u32);
+                        app.key_up(window, Key(lower as _), XKeysymToKeycode(self.display, keysym) as _);
                     }
                 }
 
@@ -243,46 +243,6 @@ impl EventHandlerBuilder {
             XCloseDisplay(display);
             return Err(ErrorKind::Other.into());
         }
-
-        // type XIMStyle = c_ulong;
-
-        // #[repr(C)]
-        // struct XIMStyles {
-        //     count_styles: c_ushort,
-        //     supported_styles: *mut XIMStyle,
-        // }
-
-        // let mut styles: *mut XIMStyles = null_mut();
-        // let styles_ptr = &mut styles as *mut *mut XIMStyles;
-
-        // let failed_args = XGetIMValues(im, XNQueryInputStyle_0.as_ptr(), styles_ptr, 0usize);
-        // if !failed_args.is_null() {
-        //     XCloseIM(im);
-        //     XCloseDisplay(display);
-        //     return Err(ErrorKind::Other.into());
-        // }
-
-        // let styles = styles.to_ref();
-
-        // for i in 0..styles.count_styles {
-        //     let string = *styles.supported_styles.add(i as usize);
-
-        //     let s0 = styles.supported_styles as *const *const u8;
-        //     let s0 = std::str::from_utf8_unchecked(std::slice::from_raw_parts(s0.cast(), 1000));
-        //     let s1 = styles.supported_styles as *const u8;
-        //     let s1 = std::str::from_utf8_unchecked(std::slice::from_raw_parts(s1.cast(), 1000));
-
-        //     let string = CStr::from_ptr(string as _);
-
-        //     match string.to_str() {
-        //         Ok(s) => {
-        //             log_verbose!("Exposed", "XIM style {s}");
-        //         }
-        //         Err(e) => {
-        //             log_error!("Exposed", "XIM style error <{e}>");
-        //         }
-        //     }
-        // }
 
         let wm_delete = XInternAtom(display, cstr!("WM_DELETE_WINDOW"), True);
 

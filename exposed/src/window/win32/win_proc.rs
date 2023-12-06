@@ -108,19 +108,19 @@ pub unsafe extern "system" fn win_proc<E: Event>(hwnd: HWND, msg: u32, wparam: W
 
             match msg {
                 WM_KEYDOWN => {
-                    handler.key_down(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    handler.key_down(WindowHandle(hwnd).into(), Key(vk_code as _), scan_code as _);
                     0
                 }
                 WM_KEYUP => {
-                    handler.key_up(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    handler.key_up(WindowHandle(hwnd).into(), Key(vk_code as _), scan_code as _);
                     0
                 }
                 WM_SYSKEYDOWN => {
-                    handler.key_down(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    handler.key_down(WindowHandle(hwnd).into(), Key(vk_code as _), scan_code as _);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
                 WM_SYSKEYUP => {
-                    handler.key_up(WindowHandle(hwnd).into(), Key(vk_code as u32), scan_code as _);
+                    handler.key_up(WindowHandle(hwnd).into(), Key(vk_code as _), scan_code as _);
                     DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
                 _ => std::hint::unreachable_unchecked(),
@@ -149,7 +149,7 @@ pub unsafe extern "system" fn win_proc<E: Event>(hwnd: HWND, msg: u32, wparam: W
         WM_MOUSEHWHEEL => {
             let value = (wparam >> 16) as i16;
             let value = value as i32;
-            let value = -value as f32 / WHEEL_DELTA as f32; // NOTE: inverted! See https://github.com/rust-windowing/winit/pull/2105/
+            let value = -value as f32 / WHEEL_DELTA as f32;
 
             handler.mouse_wheel(WindowHandle(hwnd).into(), value, 0.0);
 
@@ -177,42 +177,44 @@ pub unsafe extern "system" fn win_proc<E: Event>(hwnd: HWND, msg: u32, wparam: W
         WM_SETCURSOR => DefWindowProcW(hwnd, msg, wparam, lparam),
 
         WM_LBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(1));
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton::LEFT);
             0
         }
 
         WM_LBUTTONUP => {
-            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(1));
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton::LEFT);
             0
         }
 
         WM_RBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(2));
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton::RIGHT);
             0
         }
 
         WM_RBUTTONUP => {
-            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(2));
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton::RIGHT);
             0
         }
 
         WM_MBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(3));
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton::MIDDLE);
             0
         }
 
         WM_MBUTTONUP => {
-            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(3));
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton::MIDDLE);
             0
         }
 
         WM_XBUTTONDOWN => {
-            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(4));
+            let b = hiword(wparam as _);
+            handler.mouse_button_down(WindowHandle(hwnd).into(), MouseButton(10 + b as u32));
             0
         }
 
         WM_XBUTTONUP => {
-            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(5));
+            let b = hiword(wparam as _);
+            handler.mouse_button_release(WindowHandle(hwnd).into(), MouseButton(10 + b as u32));
             0
         }
 
@@ -291,7 +293,7 @@ pub unsafe extern "system" fn win_proc<E: Event>(hwnd: HWND, msg: u32, wparam: W
 
                     let file_name = String::from_utf16_lossy(&buffer[..file_name_size as usize - 1]);
 
-                    handler.file_recived(WindowHandle(hwnd).into(), file_name)
+                    handler.file_received(WindowHandle(hwnd).into(), file_name)
                 }
             }
 

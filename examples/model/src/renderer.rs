@@ -37,10 +37,6 @@ impl PmxRenderer {
             gl::Enable(gl::DEPTH_TEST);
             gl::DepthFunc(gl::LEQUAL);
             gl::DepthMask(gl::TRUE);
-
-            // gl::Enable(gl::CULL_FACE);
-            // gl::FrontFace(gl::CCW);
-            // gl::CullFace(gl::CULL_FACE);
         }
 
         let vertex_source = include_str!("../shaders/pmx.vert");

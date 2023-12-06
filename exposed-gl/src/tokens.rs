@@ -18,8 +18,12 @@ pub const END: u32 = pgl::NONE;
 #[macro_export]
 #[cfg(target_os = "android")]
 macro_rules! surface_config {
-    ($($arg:expr),*) => {
-        [$($arg),* $crate::tokens::END]
+    ($($arg:tt)*) => {
+        [
+            $crate::tokens::pgl::SURFACE_TYPE, $crate::tokens::pgl::WINDOW_BIT,
+            $($arg)* 
+            $crate::tokens::END
+        ]
     };
 }
 
@@ -33,8 +37,6 @@ macro_rules! surface_config {
             $crate::tokens::pgl::RENDER_TYPE, $crate::tokens::pgl::RGBA_BIT,
             $crate::tokens::pgl::X_VISUAL_TYPE, $crate::tokens::pgl::TRUE_COLOR,
             $crate::tokens::pgl::DOUBLEBUFFER, 1,
-            $crate::tokens::DEPTH_BITS_ARB, 1,
-            $crate::tokens::STENCIL_BITS_ARB, 1,
             $($arg)*
             0
         ]
@@ -51,8 +53,6 @@ macro_rules! surface_config {
             $crate::tokens::pgl::DOUBLE_BUFFER_ARB, 1,
             $crate::tokens::pgl::ACCELERATION_ARB, $crate::tokens::pgl::FULL_ACCELERATION_ARB,
             $crate::tokens::pgl::PIXEL_TYPE_ARB, $crate::tokens::pgl::TYPE_RGBA_ARB,
-            $crate::tokens::DEPTH_BITS_ARB, 1,
-            $crate::tokens::STENCIL_BITS_ARB, 1,
             $($arg)*
             0
         ]

@@ -89,14 +89,24 @@ pub mod rs {
         writeln!(f, "{cfg_}")?;
         writeln!(f, "#[repr(C)]")?;
         writeln!(f, "#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]")?;
-        writeln!(f, "pub struct Key(pub u32);")?;
+        writeln!(f, "/// Wraps inner os specific virtual key to make matching more easier.")?;
+        writeln!(f, "/// ```no_run")?;
+        writeln!(f, "/// use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;")?;
+        writeln!(f, "/// let key = Key(VK_ESCAPE as u64);")?;
+        writeln!(f, "/// assert!(key == KEY::ESCAPE);")?;
+        writeln!(f, "///")?;
+        writeln!(f, "/// use ndk_sys::AKEYCODE_ESCAPE;")?;
+        writeln!(f, "/// let key = Key(AKEYCODE_ESCAPE as u64);")?;
+        writeln!(f, "/// assert!(key == KEY::ESCAPE);")?;
+        writeln!(f, "/// ```")?;
+        writeln!(f, "pub struct Key(pub u64);")?;
         writeln!(f, "")?;
 
         writeln!(f, "{cfg_}")?;
         writeln!(f, "impl Key {{")?;
 
         for key in keys {
-            writeln!(f, "    pub const {name}: Self = Self({value} as u32);", name = key.name, value = key.get_value(os))?;
+            writeln!(f, "    pub const {name}: Self = Self({value} as u64);", name = key.name, value = key.get_value(os))?;
         }
 
         writeln!(f, "}}")?;

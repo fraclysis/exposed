@@ -11,9 +11,9 @@ use ndk_sys::{
     AMOTION_EVENT_ACTION_CANCEL, AMOTION_EVENT_ACTION_DOWN, AMOTION_EVENT_ACTION_MASK, AMOTION_EVENT_ACTION_MOVE,
     AMOTION_EVENT_ACTION_POINTER_DOWN, AMOTION_EVENT_ACTION_POINTER_UP, AMOTION_EVENT_ACTION_UP,
 };
-use unsafe_utilities::broke_checker::AsReference;
+use unsafe_utilities::to_ref::ToReference;
 
-use crate::window::{Event, Key, Touch, TouchPhase, platform::WindowHandle};
+use crate::window::{platform::WindowHandle, Event, Key, Touch, TouchPhase};
 
 use super::{ActivityContext, Context, WaitState};
 
@@ -39,8 +39,6 @@ unsafe fn _main<E: Event>(data: &mut ActivityContext) -> *mut c_void {
             // todo!("Exit the application.");
         }
 
-        // ??
-
         let act = data;
         let vm = act.android_activity.vm;
         let mut env = zeroed();
@@ -58,12 +56,9 @@ unsafe fn _main<E: Event>(data: &mut ActivityContext) -> *mut c_void {
         let class = (env.to_ref().to_ref().v1_1.GetObjectClass)(env, act.android_activity.clazz as _);
         log_error!("Exposed", "jni Class{}" class as usize);
 
-        let method_id = (env.to_ref().to_ref().v1_1.GetMethodID)(env, class, cstr!("showSoftKeyboard"), cstr!("()V"));
-
-        // ??
+        let _method_id = (env.to_ref().to_ref().v1_1.GetMethodID)(env, class, cstr!("showSoftKeyboard"), cstr!("()V"));
 
         // TODO:(fraclysis) release the application for running
-
         match context.waits_at() {
             None => unreachable!(),
             Running => {
@@ -163,7 +158,13 @@ unsafe fn _main<E: Event>(data: &mut ActivityContext) -> *mut c_void {
                                                 let x = AMotionEvent_getX(event, i);
                                                 let y = AMotionEvent_getY(event, i);
 
-                                                let touch = Touch { phase, location: (x, y), id: pointer_id as _ };
+                                                let touch = Touch {
+                                                    phase,
+                                                    location: (x, y),
+                                                    id: pointer_id as _,
+                                                    os_data: event as _,
+                                                    pointer_index: i,
+                                                };
 
                                                 _e.touch(window, touch, pointer_size);
                                             }
@@ -173,17 +174,7 @@ unsafe fn _main<E: Event>(data: &mut ActivityContext) -> *mut c_void {
                                     }
 
                                     AINPUT_EVENT_TYPE_KEY => {
-                                        let key = Key(AKeyEvent_getKeyCode(event) as _);
-                                        if key == Key::KEY_T {
-                                            (env.to_ref().to_ref().v1_1.CallVoidMethod)(
-                                                env,
-                                                act.android_activity.clazz as _,
-                                                method_id,
-                                            );
-                                            log_error!("Exposed", "jni ok");
-                                        } else {
-                                            log_info!("Exposed", "{key:?}")
-                                        }
+                                        let _key = Key(AKeyEvent_getKeyCode(event) as _);
                                     }
                                     _ => {}
                                 }

@@ -3,6 +3,8 @@ use exposed_gl::GlSurface;
 
 const IS_ANDROID: bool = cfg!(target_os = "android");
 
+const SURFACE_CONFIG: &[u32] = &exposed_gl::surface_config!();
+
 #[allow(unused)]
 pub struct App {
     vao: gl::types::GLuint,
@@ -14,7 +16,6 @@ pub struct App {
     running: bool,
 }
 
-
 impl exposed::window::Event for App {
     fn create(context: exposed::window::Context) -> Option<Self> {
         exposed_gl::load_lib_opengl().unwrap();
@@ -24,7 +25,7 @@ impl exposed::window::Event for App {
         let (display, window) = exposed_gl::GlSurface::build_with::<Self>(
             &exposed::window::WindowBuilder::default(),
             context,
-            &exposed_gl::surface_config!(),
+            SURFACE_CONFIG,
             &mut picker,
         )
         .unwrap();
@@ -206,7 +207,9 @@ impl exposed::window::Event for App {
 
     fn show(&mut self, window: exposed::window::WindowHandle) {
         if IS_ANDROID {
-            let display = exposed::destroy::Destroyable(GlSurface::build::<Self>(window, &exposed_gl::surface_config!(), &mut exposed_gl::GlDefaultPicker::default()).unwrap());
+            let display = exposed::destroy::Destroyable(
+                GlSurface::build::<Self>(window, SURFACE_CONFIG, &mut exposed_gl::GlDefaultPicker::default()).unwrap(),
+            );
 
             display.make_current(self.context.0).unwrap();
 

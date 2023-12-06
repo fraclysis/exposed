@@ -28,7 +28,7 @@ use libc::{c_void, dlclose, dlopen, dlsym, RTLD_LAZY, RTLD_LOCAL};
 
 use exposed::{
     destroy::Destroy,
-    unsafe_utilities::broke_checker::AsReference,
+    unsafe_utilities::to_ref::ToReference,
     window::{
         platform::{WindowBuilder, WindowHandle},
         Context, Event,
@@ -161,7 +161,7 @@ impl GlSurface {
 
             unsafe { XSetICFocus(ic) };
 
-            Ok((GlSurface { display, window, config: config as _ }, WindowHandle(window)))
+            Ok((GlSurface { display, window, config: config as _ }, WindowHandle(window, display.cast())))
         } else {
             todo!()
         }
@@ -173,7 +173,7 @@ impl GlSurface {
         Err(ErrorKind::Unsupported.into())
     }
 
-    pub fn set_swap_interval(self, interval: i32) -> Result<(), Error> {
+    pub fn set_swap_interval(self, _interval: i32) -> Result<(), Error> {
         let glx = get_glx()?;
 
         let drawable = unsafe { glx.GetCurrentDrawable() };

@@ -5,13 +5,27 @@ use crate::destroy::Destroy;
 use super::{platform, Event};
 
 #[derive(Debug)]
+/// Provides a way to control event loop in a platform compatible way.
 pub struct EventHandler<E: Event>(pub platform::EventHandler<E>);
 
 impl<E: Event> EventHandler<E> {
+    /// Returns 0 if not message is available.
+    /// If return value is bigger than 0 `EventHandler::dispatch` must be called.
+    ///
+    /// Represents:
+    /// - `PeekMessageW` in Windows
+    /// - `XCheckIfEvent` in X11
+    /// - `ALooper_poolAll` with timeout 0 in Android
     pub fn poll(&mut self) -> i32 {
         self.0.poll()
     }
 
+    /// Return value is ignored.
+    ///
+    /// Represents:
+    /// - `GetMessageW` in Windows
+    /// - `XNextEvent` in X11
+    /// - `ALooper_poolAll` with timeout negative in Android
     pub fn wait(&mut self) -> i32 {
         self.0.wait()
     }
@@ -28,6 +42,7 @@ impl<E: Event> Destroy for EventHandler<E> {
 }
 
 #[derive(Debug, Default)]
+/// Provides a way to create `EventHandler` in a platform compatible way.
 pub struct EventHandlerBuilder(pub platform::EventHandlerBuilder);
 
 impl EventHandlerBuilder {

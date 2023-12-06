@@ -2,7 +2,10 @@ mod camera;
 mod model;
 mod renderer;
 
-use std::{ffi::CString, io::Error};
+use std::{
+    ffi::CString,
+    io::{Error, ErrorKind},
+};
 
 use camera::Camera;
 use exposed::{
@@ -15,10 +18,13 @@ use exposed::{
 };
 use exposed_gl::{get_proc_addr, load_lib_opengl, surface_config, tokens, GlContext, GlDefaultPicker, GlSurface};
 use model::Pmx;
+use nalgebra_glm::vec2;
 use renderer::PmxRenderer;
 
 const IS_ANDROID: bool = cfg!(target_os = "android");
 const SENSITIVITY: f32 = 0.01;
+
+const SURFACE_CONFIG: &[u32] = &surface_config!(tokens::DEPTH_BITS_ARB, 1,);
 
 pub struct App {
     render: bool,
@@ -26,7 +32,8 @@ pub struct App {
     last_x: i32,
     last_y: i32,
     camera: Camera,
-    old_touch: Touch,
+    touch_count: usize,
+    touch_buffer: [Touch; 2],
     models: Vec<Pmx>,
     pmx_renderer: PmxRenderer,
     gl_context: Destroyable<GlContext>,
@@ -37,14 +44,18 @@ pub struct App {
 
 impl App {
     fn new(context: Context) -> Result<Self, Error> {
+        let env: Vec<String> = std::env::args().collect();
+
+        if env.len() != 2 {
+            return Err(Error::new(ErrorKind::Other, format!("Use {} <PMX_PATH>", env[0])));
+        }
+
+        let model_path = &env[1];
+
         load_lib_opengl()?;
 
-        let (surface, window) = GlSurface::build_with::<Self>(
-            &WindowBuilder::default(),
-            context,
-            &surface_config!(),
-            &mut GlDefaultPicker::default(),
-        )?;
+        let (surface, window) =
+            GlSurface::build_with::<Self>(&WindowBuilder::default(), context, SURFACE_CONFIG, &mut GlDefaultPicker::default())?;
 
         let window = Destroyable(window);
         let surface = Destroyable(surface);
@@ -93,17 +104,6 @@ impl App {
 
         let mut models = Vec::new();
 
-        #[cfg(target_os = "linux")]
-        let model_path = "../archive/shroom/models/Raiden/sword.pmx";
-
-        #[cfg(target_os = "windows")]
-        // let model_path = "../archive/shroom/models/Mona/model.pmx";
-        let model_path = "../archive/shroom/models/Raiden/sword.pmx";
-        #[cfg(target_os = "android")]
-        let model_path = "/storage/emulated/0/Download/models/Mona/model.pmx";
-        #[cfg(target_os = "android")]
-        let model_path = "/storage/emulated/0/Download/models/Raiden/sword.pmx";
-
         models.push(Pmx::new(model_path, &pmx_renderer).unwrap());
 
         let camera = Camera::new(window.client_size()?);
@@ -120,7 +120,8 @@ impl App {
             last_y: 0,
             clicked: false,
             render: true,
-            old_touch: Default::default(),
+            touch_count: Default::default(),
+            touch_buffer: Default::default(),
         })
     }
 
@@ -134,8 +135,7 @@ impl App {
 impl Event for App {
     fn show(&mut self, window: WindowHandle) {
         if IS_ANDROID {
-            let surface =
-                Destroyable(GlSurface::build::<Self>(window, &surface_config!(), &mut GlDefaultPicker::default()).unwrap());
+            let surface = Destroyable(GlSurface::build::<Self>(window, SURFACE_CONFIG, &mut GlDefaultPicker::default()).unwrap());
 
             surface.make_current(self.gl_context.0).unwrap();
 
@@ -220,7 +220,7 @@ impl Event for App {
     }
 
     fn key_up(&mut self, _: WindowHandle, key: Key, _: ScanCode) {
-        if key == Key::KEY_SPACE {
+        if key == Key::SPACE {
             self.render = false;
         }
 
@@ -230,25 +230,23 @@ impl Event for App {
     fn key_down(&mut self, _: WindowHandle, key: Key, _: ScanCode) {
         const STEP: f32 = 0.01745329252 * 2.0;
 
-        print!("{key:?}  ");
-
         match key {
-            Key::KEY_UPARROW => {
+            Key::UP_ARROW => {
                 self.camera.orbit(STEP, 0.0);
             }
-            Key::KEY_DOWNARROW => {
+            Key::DOWN_ARROW => {
                 self.camera.orbit(-STEP, 0.0);
             }
-            Key::KEY_LEFTARROW => {
+            Key::LEFT_ARROW => {
                 self.camera.orbit(0.0, STEP);
             }
-            Key::KEY_RIGHTARROW => {
+            Key::RIGHT_ARROW => {
                 self.camera.orbit(0.0, -STEP);
             }
-            Key::KEY_ESCAPE => {
+            Key::ESCAPE => {
                 self.running = false;
             }
-            Key::KEY_SPACE => {
+            Key::SPACE => {
                 self.render = true;
             }
             _ => (),
@@ -260,22 +258,73 @@ impl Event for App {
     }
 
     fn touch(&mut self, _: WindowHandle, touch: Touch, _: usize) {
-        match touch.phase {
-            TouchPhase::Moved | TouchPhase::Ended => {
-                let dx = touch.location.0 - self.old_touch.location.0;
-                let dy = touch.location.1 - self.old_touch.location.1;
+        // match touch.phase {
+        //     TouchPhase::Moved | TouchPhase::Ended => {
+        //         let dx = touch.location.0 - self.old_touch.location.0;
+        //         let dy = touch.location.1 - self.old_touch.location.1;
 
-                self.camera.orbit(dx * SENSITIVITY, -dy * SENSITIVITY);
-                self.camera.update();
-                self.redraw();
+        //         self.camera.orbit(dx * SENSITIVITY, -dy * SENSITIVITY);
+        //         self.camera.update();
+        //         self.redraw();
+        //     }
+        //     _ => {}
+        // }
+
+        // self.old_touch = touch;
+
+        // We collect the touch events
+        if self.touch_count < self.touch_buffer.len() {
+            self.touch_buffer[self.touch_count] = touch;
+        }
+        self.touch_count += 1;
+    }
+
+    fn touch_end(&mut self, _: WindowHandle) {
+        match self.touch_count {
+            1 => {
+                if self.touch_buffer[0].phase == TouchPhase::Moved {
+                    if let Some((ox, oy)) = self.touch_buffer[0].historical() {
+                        let (nx, ny) = self.touch_buffer[0].location;
+
+                        let dx = nx - ox;
+                        let dy = ny - oy;
+
+                        self.camera.orbit(dx * SENSITIVITY, -dy * SENSITIVITY);
+                        self.camera.update();
+                        self.redraw();
+                    }
+                }
+            }
+            2 => {
+                if self.touch_buffer[0].phase == TouchPhase::Moved && self.touch_buffer[1].phase == TouchPhase::Moved {
+                    let old_len = {
+                        let a0 = self.touch_buffer[0].historical().unwrap_or(self.touch_buffer[0].location);
+                        let a1 = self.touch_buffer[1].historical().unwrap_or(self.touch_buffer[1].location);
+                        let a0 = vec2(a0.0, a0.1);
+                        let a1 = vec2(a1.0, a1.1);
+                        a1.metric_distance(&a0)
+                    };
+
+                    let len = {
+                        let a0 = self.touch_buffer[0].location;
+                        let a1 = self.touch_buffer[1].location;
+
+                        let a0 = vec2(a0.0, a0.1);
+                        let a1 = vec2(a1.0, a1.1);
+                        a1.metric_distance(&a0)
+                    };
+
+                    let dz = len - old_len;
+                    self.camera.radius += SENSITIVITY * dz;
+                    self.camera.update();
+                    self.redraw();
+                }
             }
             _ => {}
         }
 
-        self.old_touch = touch;
+        self.touch_count = 0;
     }
-
-    fn touch_end(&mut self, _: WindowHandle) {}
 
     fn create(context: Context) -> Option<Self> {
         match Self::new(context) {

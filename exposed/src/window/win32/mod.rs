@@ -8,6 +8,8 @@ pub use event_handler::*;
 pub use win_proc::*;
 pub use window::*;
 
+pub use windows_sys;
+
 pub struct Android<T> {
     _mark: std::marker::PhantomData<T>,
 }

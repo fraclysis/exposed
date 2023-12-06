@@ -70,6 +70,7 @@ impl Destroy for GlSurface {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+/// Just a wrapper struct around OpenGl context handle.
 pub struct GlContext(pub platform::GlContext);
 
 impl GlContext {

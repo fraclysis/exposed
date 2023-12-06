@@ -6,16 +6,13 @@ use std::{
 };
 
 use exposed_macro::log_error;
-use libc::{
-    pthread_create, pthread_join, pthread_t, sem_destroy, sem_init, sem_post, sem_t, sem_wait,
-};
+use libc::{pthread_create, pthread_join, pthread_t, sem_destroy, sem_init, sem_post, sem_t, sem_wait};
 use ndk_sys::{
-    AInputQueue, AInputQueue_attachLooper, AInputQueue_detachLooper, ALooper, ALooper_wake,
-    ANativeActivity, ANativeWindow,
+    AInputQueue, AInputQueue_attachLooper, AInputQueue_detachLooper, ALooper, ALooper_wake, ANativeActivity, ANativeWindow,
 };
 use unsafe_utilities::{
     allocate::{allocate_zeroed, deallocate},
-    broke_checker::AsReference,
+    to_ref::ToReference,
 };
 
 use crate::{

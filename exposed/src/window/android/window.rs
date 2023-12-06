@@ -8,7 +8,7 @@ use ndk_sys::{
     AHardwareBuffer_Format, ALooper_wake, ANativeWindow, ANativeWindow_getHeight, ANativeWindow_getWidth, ANativeWindow_lock,
     ANativeWindow_unlockAndPost,
 };
-use unsafe_utilities::broke_checker::AsReference;
+use unsafe_utilities::to_ref::ToReference;
 
 use crate::{
     destroy::Destroy,

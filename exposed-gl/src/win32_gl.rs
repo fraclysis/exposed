@@ -15,7 +15,7 @@ use windows_sys::{
     Win32::{
         Foundation::{
             GetLastError, ERROR_DC_NOT_FOUND, ERROR_INVALID_OPERATION, ERROR_INVALID_PARAMETER, ERROR_INVALID_PIXEL_FORMAT,
-            ERROR_NO_SYSTEM_RESOURCES, HMODULE,
+            ERROR_NO_SYSTEM_RESOURCES, HMODULE, FreeLibrary,
         },
         Graphics::{
             Gdi::{GetDC, ReleaseDC, HDC},
@@ -25,7 +25,7 @@ use windows_sys::{
                 PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR,
             },
         },
-        System::LibraryLoader::{FreeLibrary, GetModuleHandleW, GetProcAddress, LoadLibraryW},
+        System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW},
         UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, UnregisterClassW, CS_OWNDC, CW_USEDEFAULT, WNDCLASSW,
             WS_OVERLAPPEDWINDOW,
@@ -469,7 +469,7 @@ pub fn load_lib_opengl() -> Result<(), Error> {
         pfd.iPixelType = PFD_TYPE_RGBA;
         pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
         pfd.cColorBits = 32;
-        pfd.iLayerType = PFD_MAIN_PLANE;
+        pfd.iLayerType = PFD_MAIN_PLANE as _;
         pfd.cDepthBits = 24;
         pfd.cStencilBits = 8;
 
