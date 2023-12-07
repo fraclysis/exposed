@@ -1,4 +1,7 @@
 # Exposed
+[![Rust](https://github.com/fraclysis/exposed/actions/workflows/rust.yaml/badge.svg)](https://github.com/fraclysis/exposed/actions/workflows/rust.yaml)
+![crates.io](https://img.shields.io/crates/v/exposed.svg)
+![crates.io](https://img.shields.io/crates/v/exposed-gl.svg)
 
 Exposed is a cross-platform window management library.
 
