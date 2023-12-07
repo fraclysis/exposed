@@ -2,7 +2,7 @@
 name = "exposed"
 version = "0.0.1-beta"
 edition = "2021"
-license = "MIT or Apache-2.0"
+license = "MIT OR Apache-2.0"
 description = "Exposed is a cross-platform window management library."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
