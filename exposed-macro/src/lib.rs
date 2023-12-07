@@ -1,5 +1,3 @@
-use exposed_proc::log_impl;
-
 #[macro_export]
 macro_rules! cstr {
     ($s:literal) => {
@@ -13,23 +11,338 @@ macro_rules! cstr {
 #[cfg(target_os = "android")]
 pub use ndk_sys::{__android_log_print, android_LogPriority};
 
-log_impl!(debug, $crate::android_LogPriority::ANDROID_LOG_DEBUG.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_debug_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEBUG.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEBUG.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEBUG.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEBUG.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_debug {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_DEBUG.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_DEBUG.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_debug {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("DEBUG: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("DEBUG: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(default, $crate::android_LogPriority::ANDROID_LOG_DEFAULT.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_default_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEFAULT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEFAULT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEFAULT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_DEFAULT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_default {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_DEFAULT.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_DEFAULT.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_default {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("DEFAULT: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("DEFAULT: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(error, $crate::android_LogPriority::ANDROID_LOG_ERROR.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_error_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_ERROR.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_ERROR.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_ERROR.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_ERROR.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_error {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_ERROR.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_ERROR.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_error {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("ERROR: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("ERROR: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(fatal, $crate::android_LogPriority::ANDROID_LOG_FATAL.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_fatal_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_FATAL.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_FATAL.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_FATAL.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_FATAL.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_fatal {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_FATAL.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_FATAL.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_fatal {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("FATAL: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("FATAL: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(info, $crate::android_LogPriority::ANDROID_LOG_INFO.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_info_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_INFO.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_INFO.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_INFO.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_INFO.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_info {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_INFO.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_INFO.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_info {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("INFO: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("INFO: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(silent, $crate::android_LogPriority::ANDROID_LOG_SILENT.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_silent_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_SILENT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_SILENT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_SILENT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_SILENT.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_silent {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_SILENT.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_SILENT.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_silent {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("SILENT: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("SILENT: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(unknown, $crate::android_LogPriority::ANDROID_LOG_UNKNOWN.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_unknown_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_UNKNOWN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_UNKNOWN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_UNKNOWN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_UNKNOWN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_unknown {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_UNKNOWN.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_UNKNOWN.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_unknown {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("UNKNOWN: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("UNKNOWN: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(verbose, $crate::android_LogPriority::ANDROID_LOG_VERBOSE.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_verbose_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_VERBOSE.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_VERBOSE.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_VERBOSE.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_VERBOSE.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_verbose {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_VERBOSE.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_VERBOSE.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_verbose {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("VERBOSE: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("VERBOSE: {} {}", $tag,format!($($arg),*));
+  };
+}
 
-log_impl!(warn, $crate::android_LogPriority::ANDROID_LOG_WARN.0);
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_warn_ {
+  ($tag:literal, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_WARN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:literal, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_WARN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+  ($tag:expr, $fmt:literal) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_WARN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt))
+  };
+  ($tag:expr, $fmt:literal, $($args:expr),*) => {
+    $crate::__android_log_print($crate::android_LogPriority::ANDROID_LOG_WARN.0 as _, $crate::cstr!($tag), $crate::cstr!($fmt), $($args),*)
+  };
+}
+#[macro_export]
+#[cfg(target_os = "android")]
+macro_rules! log_warn {
+  ($tag:expr, $($arg:expr),*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_WARN.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    $crate::log_string($crate::android_LogPriority::ANDROID_LOG_WARN.0, $crate::cstr!($tag),format!($($arg),*))
+  };
+}
+#[macro_export]
+#[cfg(not(target_os = "android"))]
+macro_rules! log_warn {
+  ($tag:expr, $($arg:expr),*) => {
+    println!("WARN: {} {}", $tag,format!($($arg),*));
+  };
+  ($tag:literal, $($arg:expr)*) => {
+    println!("WARN: {} {}", $tag,format!($($arg),*));
+  };
+}
 
 #[macro_export]
 #[cfg(target_os = "android")]

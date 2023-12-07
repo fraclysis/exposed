@@ -7,7 +7,6 @@ edition = "2021"
 
 
 [dependencies]
-exposed-proc = { path = "../exposed-proc" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-sys = "0.5.0"

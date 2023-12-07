@@ -346,13 +346,8 @@ version = "0.1.0"
 name = "exposed-macro"
 version = "0.1.0"
 dependencies = [
- "exposed-proc",
  "ndk-sys",
 ]
-
-[[package]]
-name = "exposed-proc"
-version = "0.1.0"
 
 [[package]]
 name = "exr"
